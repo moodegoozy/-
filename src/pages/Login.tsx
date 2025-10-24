@@ -28,6 +28,10 @@ export const Login: React.FC = () => {
         // ✅ توجيه حسب نوع الحساب
         if (userData.role === "owner") {
           nav("/owner") // لوحة المطعم
+        } else if (userData.role === "courier") {
+          nav("/courier") // المندوب
+        } else if (userData.role === "admin") {
+          nav("/admin/panel") // المشرفات
         } else {
           nav("/") // الصفحة الرئيسية للعميل
         }
