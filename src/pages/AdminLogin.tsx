@@ -107,5 +107,4 @@ const AdminLogin: React.FC = () => {
   )
 }
 
-export { AdminLogin }
 export default AdminLogin
