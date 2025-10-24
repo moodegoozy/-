@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   addDoc,
   collection,
@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   updateDoc,
 } from 'firebase/firestore'
+
 import { useAuth } from '@/auth'
 import { db } from '@/firebase'
 
@@ -30,9 +31,8 @@ type RestaurantRecord = {
   id: string
   name: string
   ownerName?: string
-  statusLabel: string
-  statusRaw?: unknown
   city?: string
+  status?: string
   createdAt: Date | null
 }
 
@@ -51,23 +51,23 @@ const tabs: Array<{ id: TabKey; label: string; description: string }> = [
   {
     id: 'overview',
     label: 'نظرة عامة',
-    description: 'ملخص سريع لحالة المنصة والمهام اليومية',
+    description: 'ملخص لأهم أرقام المنصة اليوم.'
   },
   {
     id: 'commission',
     label: 'العمولة',
-    description: 'متابعة عمولات المنصة وحساباتها الشهرية',
+    description: 'متابعة عمولة المنصة وحساب التوزيعات.'
   },
   {
     id: 'restaurants',
     label: 'إدارة المطاعم',
-    description: 'إضافة مطعم جديد ومتابعة حالة التفعيل',
+    description: 'طلبات الانضمام، حالة التفعيل، والمتابعة اليومية.'
   },
   {
     id: 'reports',
     label: 'التقارير',
-    description: 'إحصاءات موسعة عن الأداء والنمو',
-  },
+    description: 'إحصاءات دورية واستبصارات تساعد في اتخاذ القرار.'
+  }
 ]
 
 const formatCurrency = (value: number) =>
@@ -84,26 +84,26 @@ const toDate = (value: unknown): Date | null => {
     return Number.isNaN(value.getTime()) ? null : value
   }
   if (typeof value === 'string' || typeof value === 'number') {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? null : date
+    const result = new Date(value)
+    return Number.isNaN(result.getTime()) ? null : result
   }
-  if (typeof value === 'object' && value !== null) {
-    const maybeTimestamp = value as { seconds?: number; toDate?: () => Date }
-    if (typeof maybeTimestamp.toDate === 'function') {
-      const date = maybeTimestamp.toDate()
+  if (typeof value === 'object') {
+    const timestamp = value as { seconds?: number; toDate?: () => Date }
+    if (typeof timestamp.toDate === 'function') {
+      const date = timestamp.toDate()
       return Number.isNaN(date.getTime()) ? null : date
     }
-    if (typeof maybeTimestamp.seconds === 'number') {
-      const date = new Date(maybeTimestamp.seconds * 1000)
+    if (typeof timestamp.seconds === 'number') {
+      const date = new Date(timestamp.seconds * 1000)
       return Number.isNaN(date.getTime()) ? null : date
     }
   }
   return null
 }
 
-const formatDate = (value: Date | null) =>
-  value
-    ? value.toLocaleDateString('ar-SA', {
+const formatDate = (date: Date | null) =>
+  date
+    ? date.toLocaleDateString('ar-SA', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -111,7 +111,7 @@ const formatDate = (value: Date | null) =>
     : '—'
 
 const statusLabel = (status: string) => {
-  const map: Record<string, string> = {
+  const dictionary: Record<string, string> = {
     pending: 'قيد المراجعة',
     accepted: 'تم القبول',
     preparing: 'قيد التحضير',
@@ -120,7 +120,7 @@ const statusLabel = (status: string) => {
     delivered: 'تم التسليم',
     cancelled: 'ملغي',
   }
-  return map[status] ?? status
+  return dictionary[status] ?? status
 }
 
 const statusBadgeClass = (status: string) => {
@@ -140,7 +140,7 @@ const statusBadgeClass = (status: string) => {
     case 'cancelled':
       return 'bg-rose-100 text-rose-700'
     default:
-      return 'bg-gray-100 text-gray-700'
+      return 'bg-slate-100 text-slate-700'
   }
 }
 
@@ -155,973 +155,587 @@ const requestBadgeClass = (status: RestaurantRequest['status']) => {
   }
 }
 
-export const AdminDashboard: React.FC = () => {
+const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
-
   const [orders, setOrders] = useState<NormalizedOrder[]>([])
-  const [ordersLoading, setOrdersLoading] = useState(true)
-  const [ordersError, setOrdersError] = useState<string | null>(null)
-
   const [restaurants, setRestaurants] = useState<RestaurantRecord[]>([])
-  const [restaurantsLoading, setRestaurantsLoading] = useState(true)
-
   const [requests, setRequests] = useState<RestaurantRequest[]>([])
-  const [requestsLoading, setRequestsLoading] = useState(true)
-  const [requestsError, setRequestsError] = useState<string | null>(null)
-  const [requestAlert, setRequestAlert] = useState<AlertState>(null)
-  const [requestActionId, setRequestActionId] = useState<string | null>(null)
-
-  const [form, setForm] = useState({ name: '', owner: '', notes: '' })
-  const [savingRequest, setSavingRequest] = useState(false)
+  const [creatingRequest, setCreatingRequest] = useState(false)
+  const [alert, setAlert] = useState<AlertState>(null)
 
   useEffect(() => {
-    const q = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const normalized = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data() as any
-          const baseAmount = toNumber(data.restaurantPayout ?? data.subtotal)
-          const commissionRate = toNumber(data.commissionRate ?? 0.15)
-          let commissionAmount = toNumber(
-            data.applicationShare ?? data.commissionAmount,
+    const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
+    const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
+      setOrders(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          const baseAmount = toNumber(
+            data.restaurantAmount ?? data.restaurantTotal ?? data.subtotal ?? data.total ?? 0,
           )
-          if (
-            data.applicationShare === undefined &&
-            data.commissionAmount === undefined &&
-            Number.isFinite(baseAmount)
-          ) {
-            commissionAmount = Number((baseAmount * commissionRate).toFixed(2))
-          }
-          const deliveryFee = toNumber(data.deliveryFee)
-          const total = toNumber(
-            data.total ?? baseAmount + commissionAmount + deliveryFee,
+          const commission = toNumber(
+            data.appCommission ?? data.platformCommission ?? data.commission ?? baseAmount * 0.15,
           )
+          const deliveryFee = toNumber(data.deliveryFee ?? data.delivery ?? 0)
+          const total = toNumber(data.total ?? baseAmount + commission + deliveryFee)
 
           return {
-            id: docSnap.id,
-            status: data.status ?? 'pending',
+            id: document.id,
+            status: String(data.status ?? 'pending'),
             createdAt: toDate(data.createdAt),
             baseAmount,
-            commissionAmount,
+            commissionAmount: commission,
             deliveryFee,
             total,
-            restaurantName: data.restaurantName ?? 'مطعم',
-            items: Array.isArray(data.items) ? data.items : [],
+            restaurantName: String(data.restaurantName ?? data.restaurant ?? 'مطعم غير معروف'),
+            items: Array.isArray(data.items) ? (data.items as Array<{ name?: string; qty?: number }>) : [],
           }
-        })
+        }),
+      )
+    })
 
-        setOrders(normalized)
-        setOrdersError(null)
-        setOrdersLoading(false)
-      },
-      (error) => {
-        console.error('Failed to load orders for admin dashboard:', error)
-        setOrdersError(
-          'حدثت مشكلة في تحميل بيانات الطلبات. حاولِ مجدداً لاحقاً.',
-        )
-        setOrdersLoading(false)
-      },
-    )
-
-    return () => unsub()
+    return () => unsubscribe()
   }, [])
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, 'restaurants'),
-      (snapshot) => {
-        const list = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data() as any
-          const statusLabelValue =
-            typeof data.approvalStatus === 'string'
-              ? data.approvalStatus
-              : data.isApproved === true
-              ? 'معتمد'
-              : data.isApproved === false
-              ? 'بانتظار التفعيل'
-              : 'غير محدد'
+    const restaurantsQuery = query(collection(db, 'restaurants'), orderBy('createdAt', 'desc'))
+    const unsubscribe = onSnapshot(restaurantsQuery, (snapshot) => {
+      setRestaurants(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
           return {
-            id: docSnap.id,
-            name: data.name ?? 'مطعم بدون اسم',
-            ownerName: data.ownerName ?? data.owner ?? undefined,
-            statusLabel: statusLabelValue,
-            statusRaw: data.approvalStatus ?? data.isApproved ?? null,
-            city: data.city ?? undefined,
-            createdAt: toDate(data.createdAt ?? data.updatedAt ?? null),
-          }
-        })
-        setRestaurants(list)
-        setRestaurantsLoading(false)
-      },
-      (error) => {
-        console.error('Failed to load restaurants for admin dashboard:', error)
-        setRestaurants([])
-        setRestaurantsLoading(false)
-      },
-    )
-
-    return () => unsub()
-  }, [])
-
-  useEffect(() => {
-    const q = query(
-      collection(db, 'restaurantApplications'),
-      orderBy('createdAt', 'desc'),
-    )
-    const unsub = onSnapshot(
-      q,
-      (snapshot) => {
-        const records = snapshot.docs.map((docSnap) => {
-          const data = docSnap.data() as any
-          return {
-            id: docSnap.id,
-            name: data.name ?? 'مطعم بدون اسم',
-            ownerName: data.ownerName ?? data.owner ?? undefined,
-            notes: data.notes ?? undefined,
-            status: (data.status as RestaurantRequest['status']) ?? 'pending',
+            id: document.id,
+            name: String(data.name ?? 'مطعم غير معروف'),
+            ownerName: data.ownerName ? String(data.ownerName) : undefined,
+            city: data.city ? String(data.city) : undefined,
+            status: data.status ? String(data.status) : undefined,
             createdAt: toDate(data.createdAt),
           }
-        })
-        setRequests(records)
-        setRequestsError(null)
-        setRequestsLoading(false)
+        }),
+      )
+    })
+
+    return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    const requestsQuery = query(collection(db, 'restaurantRequests'), orderBy('createdAt', 'desc'))
+    const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
+      setRequests(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          const status = String(data.status ?? 'pending') as RestaurantRequest['status']
+          return {
+            id: document.id,
+            name: String(data.name ?? 'مطعم بدون اسم'),
+            ownerName: data.ownerName ? String(data.ownerName) : undefined,
+            notes: data.notes ? String(data.notes) : undefined,
+            status,
+            createdAt: toDate(data.createdAt),
+          }
+        }),
+      )
+    })
+
+    return () => unsubscribe()
+  }, [])
+
+  const metrics = useMemo(() => {
+    const totals = orders.reduce(
+      (acc, order) => {
+        acc.restaurant += order.baseAmount
+        acc.commission += order.commissionAmount
+        acc.delivery += order.deliveryFee
+        acc.total += order.total
+        acc.count += 1
+        acc.byStatus[order.status] = (acc.byStatus[order.status] ?? 0) + 1
+
+        if (order.createdAt) {
+          const key = `${order.createdAt.getFullYear()}-${String(order.createdAt.getMonth() + 1).padStart(2, '0')}`
+          const bucket = acc.byMonth.get(key) ?? { commission: 0, payout: 0, count: 0 }
+          bucket.commission += order.commissionAmount
+          bucket.payout += order.baseAmount
+          bucket.count += 1
+          acc.byMonth.set(key, bucket)
+        }
+
+        return acc
       },
-      (error) => {
-        console.warn('restaurantApplications snapshot error:', error)
-        setRequests([])
-        setRequestsError('تعذر تحميل طلبات الانضمام (تحقق من الصلاحيات).')
-        setRequestsLoading(false)
+      {
+        restaurant: 0,
+        commission: 0,
+        delivery: 0,
+        total: 0,
+        count: 0,
+        byStatus: {} as Record<string, number>,
+        byMonth: new Map<string, { commission: number; payout: number; count: number }>(),
       },
     )
 
-    return () => unsub()
-  }, [])
+    const monthlyBreakdown = Array.from(totals.byMonth.entries())
+      .map(([month, value]) => ({ month, ...value }))
+      .sort((a, b) => (a.month > b.month ? 1 : -1))
 
-  const openStatuses = useMemo(
-    () =>
-      new Set(['pending', 'accepted', 'preparing', 'ready', 'out_for_delivery']),
-    [],
-  )
+    const pendingRequests = requests.filter((request) => request.status === 'pending')
 
-  const ordersStats = useMemo(() => {
-    const stats = {
-      openCount: 0,
-      deliveredCount: 0,
-      cancelledCount: 0,
-      totalBase: 0,
-      totalCommission: 0,
-      totalDelivery: 0,
-      totalGross: 0,
-      pendingCommission: 0,
-      pendingPayout: 0,
-      monthlyCommission: 0,
-      monthlyDeliveredCount: 0,
+    return {
+      ...totals,
+      monthlyBreakdown,
+      pendingRequests,
     }
+  }, [orders, requests])
 
-    const monthWindow = new Date()
-    monthWindow.setDate(monthWindow.getDate() - 30)
-
-    orders.forEach((order) => {
-      stats.totalBase += order.baseAmount
-      stats.totalCommission += order.commissionAmount
-      stats.totalDelivery += order.deliveryFee
-      stats.totalGross += order.total
-
-      if (order.status === 'delivered') {
-        stats.deliveredCount += 1
-        if (order.createdAt && order.createdAt >= monthWindow) {
-          stats.monthlyCommission += order.commissionAmount
-          stats.monthlyDeliveredCount += 1
-        }
-      } else if (order.status === 'cancelled') {
-        stats.cancelledCount += 1
-      }
-
-      if (openStatuses.has(order.status)) {
-        stats.openCount += 1
-        stats.pendingCommission += order.commissionAmount
-        stats.pendingPayout += order.baseAmount
-      }
-    })
-
-    return stats
-  }, [openStatuses, orders])
-
-  const pendingRequestsCount = useMemo(
-    () => requests.filter((r) => r.status === 'pending').length,
-    [requests],
-  )
-
-  const overviewHighlights = useMemo(
-    () => [
-      {
-        title: 'الطلبات النشطة',
-        value: `${ordersStats.openCount} طلب`,
-        note:
-          ordersStats.openCount > 0
-            ? 'طلبات قيد المتابعة حالياً'
-            : 'لا توجد طلبات مفتوحة الآن',
-      },
-      {
-        title: 'المطاعم النشطة',
-        value: `${restaurants.length} مطعم`,
-        note:
-          pendingRequestsCount > 0
-            ? `${pendingRequestsCount} طلب انضمام بانتظار المراجعة`
-            : 'لا توجد طلبات انضمام قيد الانتظار',
-      },
-      {
-        title: 'عمولة آخر 30 يوماً',
-        value: formatCurrency(ordersStats.monthlyCommission),
-        note: `${ordersStats.monthlyDeliveredCount} طلب مكتمل خلال 30 يوماً`,
-      },
-    ],
-    [ordersStats, pendingRequestsCount, restaurants.length],
-  )
-
-  const commissionCards = useMemo(
-    () => [
-      {
-        title: 'إجمالي المبيعات',
-        amount: formatCurrency(ordersStats.totalGross),
-        note: `${orders.length} طلب مسجل في النظام`,
-      },
-      {
-        title: 'عمولة التطبيق',
-        amount: formatCurrency(ordersStats.totalCommission),
-        note:
-          ordersStats.pendingCommission > 0
-            ? `${formatCurrency(
-                ordersStats.pendingCommission,
-              )} بانتظار التحصيل`
-            : 'لا توجد عمولات متأخرة',
-      },
-      {
-        title: 'مستحقات المطاعم',
-        amount: formatCurrency(ordersStats.totalBase),
-        note:
-          ordersStats.pendingPayout > 0
-            ? `${formatCurrency(
-                ordersStats.pendingPayout,
-              )} للطلبات المفتوحة`
-            : 'جميع المستحقات تم حسابها',
-      },
-    ],
-    [orders.length, ordersStats],
-  )
-
-  const recentOrders = useMemo(() => orders.slice(0, 6), [orders])
-
-  const statusBreakdown = useMemo(() => {
-    const map = new Map<string, number>()
-    orders.forEach((order) => {
-      const label = statusLabel(order.status)
-      map.set(label, (map.get(label) ?? 0) + 1)
-    })
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1])
-  }, [orders])
-
-  const topRestaurants = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; total: number; commission: number; count: number }
-    >()
-    orders.forEach((order) => {
-      const key = order.restaurantName || 'مطعم'
-      const current =
-        map.get(key) ?? { name: key, total: 0, commission: 0, count: 0 }
-      current.total += order.total
-      current.commission += order.commissionAmount
-      current.count += 1
-      map.set(key, current)
-    })
-    return Array.from(map.values())
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5)
-  }, [orders])
-
-  const reportsMetrics = useMemo(
-    () => [
-      {
-        title: 'الطلبات المكتملة',
-        value: `${ordersStats.deliveredCount} طلب`,
-        note:
-          ordersStats.monthlyDeliveredCount > 0
-            ? `${ordersStats.monthlyDeliveredCount} خلال آخر 30 يوماً`
-            : 'لا توجد طلبات مكتملة حديثاً',
-      },
-      {
-        title: 'متوسط قيمة الطلب',
-        value:
-          ordersStats.deliveredCount > 0
-            ? formatCurrency(
-                ordersStats.totalGross / ordersStats.deliveredCount,
-              )
-            : '0.00 ر.س',
-        note: 'بناءً على الطلبات المكتملة',
-      },
-      {
-        title: 'الطلبات الملغاة',
-        value: `${ordersStats.cancelledCount} طلب`,
-        note:
-          ordersStats.openCount > 0
-            ? `${ordersStats.openCount} طلب مفتوح حالياً`
-            : 'لا توجد طلبات مفتوحة',
-      },
-    ],
-    [ordersStats],
-  )
-
-  const handleSubmitRequest = useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (!form.name.trim()) {
-        setRequestAlert({ kind: 'error', message: 'يرجى إدخال اسم المطعم.' })
-        return
-      }
-
-      setSavingRequest(true)
-      try {
-        await addDoc(collection(db, 'restaurantApplications'), {
-          name: form.name.trim(),
-          ownerName: form.owner.trim() || null,
-          notes: form.notes.trim() || null,
-          status: 'pending',
-          createdAt: serverTimestamp(),
-          createdBy: user?.uid ?? null,
-          createdByEmail: user?.email ?? null,
-        })
-
-        setForm({ name: '', owner: '', notes: '' })
-        setRequestAlert({
-          kind: 'success',
-          message: 'تم تسجيل طلب انضمام المطعم وسيتم مراجعته قريباً.',
-        })
-      } catch (error) {
-        console.error('Failed to create restaurant application:', error)
-        setRequestAlert({
-          kind: 'error',
-          message:
-            'تعذر إنشاء الطلب. يرجى المحاولة لاحقاً أو التحقق من الصلاحيات.',
-        })
-      }
-      setSavingRequest(false)
-    },
-    [form, user?.email, user?.uid],
-  )
-
-  const updateRequestStatus = useCallback(
-    async (request: RestaurantRequest, status: RestaurantRequest['status']) => {
-      setRequestActionId(request.id)
-      setRequestAlert(null)
-      try {
-        await updateDoc(doc(db, 'restaurantApplications', request.id), {
-          status,
-          reviewedAt: serverTimestamp(),
-          reviewedBy: user?.uid ?? null,
-          reviewedByEmail: user?.email ?? null,
-        })
-        setRequestAlert({
-          kind: 'success',
-          message: `تم تحديث حالة طلب «${request.name}» إلى «${
-            status === 'approved'
-              ? 'تمت الموافقة'
-              : status === 'rejected'
-              ? 'مرفوض'
-              : 'قيد المراجعة'
-          }».`,
-        })
-      } catch (error) {
-        console.error('Failed to update restaurant application:', error)
-        setRequestAlert({
-          kind: 'error',
-          message:
-            'تعذر تعديل حالة الطلب. تأكد من الصلاحيات وحاول مرة أخرى.',
-        })
-      }
-      setRequestActionId(null)
-    },
-    [user?.email, user?.uid],
-  )
-
-  const renderActiveTab = () => {
-    switch (activeTab) {
-      case 'commission':
-        return (
-          <section className="space-y-6">
-            <div className="bg-white rounded-3xl shadow-md border border-yellow-200 p-6">
-              <h2 className="text-2xl font-semibold text-primary mb-4">
-                متابعة العمولة
-              </h2>
-              {ordersError && (
-                <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 p-3 text-sm">
-                  {ordersError}
-                </div>
-              )}
-              {ordersLoading ? (
-                <p className="text-sm text-gray-600">
-                  جارِ تحميل بيانات الطلبات...
-                </p>
-              ) : (
-                <>
-                  <div className="grid gap-4 md:grid-cols-3">
-                    {commissionCards.map((card) => (
-                      <div
-                        key={card.title}
-                        className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4"
-                      >
-                        <p className="text-sm text-gray-600">{card.title}</p>
-                        <p className="text-2xl font-bold text-primary mt-2">
-                          {card.amount}
-                        </p>
-                        <p className="text-xs text-emerald-600 mt-1">
-                          {card.note}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-6 text-sm text-gray-700 leading-relaxed">
-                    <p>
-                      يتم احتساب عمولة المنصة بنسبة 15٪ من صافي قيمة الطلب قبل
-                      رسوم التوصيل، ويتم إضافتها تلقائياً إلى إجمالي المبلغ
-                      المدفوع من العميل.
-                    </p>
-                    <p className="mt-2">
-                      إجمالي العمولات قيد المعالجة حالياً يبلغ{' '}
-                      <span className="font-semibold text-primary">
-                        {formatCurrency(ordersStats.pendingCommission)}
-                      </span>
-                      ، بينما حصة المطاعم غير المسددة تبلغ{' '}
-                      <span className="font-semibold text-primary">
-                        {formatCurrency(ordersStats.pendingPayout)}
-                      </span>
-                      .
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-4">
-                أحدث الطلبات
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 text-sm">
-                  <thead className="bg-gray-50 text-gray-600">
-                    <tr>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        الطلب
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        المطعم
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        الإجمالي
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        عمولة التطبيق
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        حصة المطعم
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        الحالة
-                      </th>
-                      <th className="px-4 py-3 text-right font-semibold">
-                        التاريخ
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {recentOrders.map((order) => (
-                      <tr key={order.id} className="hover:bg-yellow-50/60">
-                        <td className="px-4 py-3 font-medium text-gray-900">
-                          #{order.id.slice(-6)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {order.restaurantName}
-                        </td>
-                        <td className="px-4 py-3 text-primary font-semibold">
-                          {formatCurrency(order.total)}
-                        </td>
-                        <td className="px-4 py-3 text-rose-600 font-semibold">
-                          {formatCurrency(order.commissionAmount)}
-                        </td>
-                        <td className="px-4 py-3 text-emerald-600 font-semibold">
-                          {formatCurrency(order.baseAmount)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(
-                              order.status,
-                            )}`}
-                          >
-                            {statusLabel(order.status)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {formatDate(order.createdAt)}
-                        </td>
-                      </tr>
-                    ))}
-                    {recentOrders.length === 0 && !ordersLoading && (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          className="px-4 py-6 text-center text-gray-500"
-                        >
-                          لا توجد طلبات مسجلة بعد.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        )
-      case 'restaurants':
-        return (
-          <section className="space-y-6">
-            <div className="bg-white rounded-3xl shadow-md border border-yellow-200 p-6">
-              <h2 className="text-2xl font-semibold text-primary mb-4">
-                إضافة مطعم جديد
-              </h2>
-              <p className="text-sm text-gray-600 mb-4">
-                سجلي بيانات المطعم للتواصل مع فريق الاعتماد. بعد الإرسال سيظهر
-                الطلب تلقائياً في قائمة المتابعة بالأسفل.
-              </p>
-              {requestAlert && (
-                <div
-                  className={`mb-4 rounded-xl border p-3 text-sm ${
-                    requestAlert.kind === 'success'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                      : 'bg-rose-50 border-rose-200 text-rose-600'
-                  }`}
-                >
-                  {requestAlert.message}
-                </div>
-              )}
-              <form
-                onSubmit={handleSubmitRequest}
-                className="grid gap-4 md:grid-cols-2"
-              >
-                <div className="flex flex-col">
-                  <label
-                    className="text-sm font-medium text-primary mb-1"
-                    htmlFor="restaurant-name"
-                  >
-                    اسم المطعم
-                  </label>
-                  <input
-                    id="restaurant-name"
-                    type="text"
-                    value={form.name}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, name: event.target.value }))
-                    }
-                    placeholder="مثال: سفرة البيت - فرع العليا"
-                    className="rounded-2xl border border-gray-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div className="flex flex-col">
-                  <label
-                    className="text-sm font-medium text-primary mb-1"
-                    htmlFor="restaurant-owner"
-                  >
-                    اسم المالك/المسؤول
-                  </label>
-                  <input
-                    id="restaurant-owner"
-                    type="text"
-                    value={form.owner}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        owner: event.target.value,
-                      }))
-                    }
-                    placeholder="اسم ممثل المطعم"
-                    className="rounded-2xl border border-gray-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div className="flex flex-col md:col-span-2">
-                  <label
-                    className="text-sm font-medium text-primary mb-1"
-                    htmlFor="restaurant-notes"
-                  >
-                    ملاحظات إضافية
-                  </label>
-                  <textarea
-                    id="restaurant-notes"
-                    rows={3}
-                    value={form.notes}
-                    onChange={(event) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        notes: event.target.value,
-                      }))
-                    }
-                    placeholder="روابط المنيو، حسابات التواصل أو أي ملاحظات للمراجعة"
-                    className="rounded-2xl border border-gray-200 px-4 py-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                </div>
-                <div className="md:col-span-2 flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={savingRequest}
-                    className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-white text-sm font-semibold shadow-md transition hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {savingRequest ? 'جاري الحفظ...' : 'حفظ الطلب ومتابعته لاحقاً'}
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-4">
-                طلبات المطاعم قيد المتابعة
-              </h3>
-              {requestsError && (
-                <div className="mb-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 p-3 text-sm">
-                  {requestsError}
-                </div>
-              )}
-              {requestsLoading ? (
-                <p className="text-sm text-gray-600">
-                  جارِ تحميل طلبات الانضمام...
-                </p>
-              ) : requests.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  لا توجد طلبات انضمام مسجلة حالياً.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50 text-gray-600">
-                      <tr>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          المطعم
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          المالكة
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          الحالة
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          تاريخ الطلب
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          إجراءات
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {requests.map((request) => (
-                        <tr key={request.id} className="hover:bg-yellow-50/60">
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {request.name}
-                          </td>
-                          <td className="px-4 py-3 text-gray-700">
-                            {request.ownerName ?? '—'}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`px-3 py-1 rounded-full text-xs font-semibold ${requestBadgeClass(
-                                request.status,
-                              )}`}
-                            >
-                              {request.status === 'approved'
-                                ? 'تمت الموافقة'
-                                : request.status === 'rejected'
-                                ? 'مرفوض'
-                                : 'قيد المراجعة'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-gray-500">
-                            {formatDate(request.createdAt)}
-                          </td>
-                          <td className="px-4 py-3 space-y-1 md:space-y-0 md:space-x-1 md:space-x-reverse md:flex md:items-center">
-                            <button
-                              onClick={() => updateRequestStatus(request, 'approved')}
-                              disabled={requestActionId === request.id}
-                              className="px-3 py-1 rounded-full bg-emerald-500 text-white text-xs font-semibold hover:bg-emerald-600 transition disabled:opacity-60"
-                            >
-                              قبول
-                            </button>
-                            <button
-                              onClick={() => updateRequestStatus(request, 'rejected')}
-                              disabled={requestActionId === request.id}
-                              className="px-3 py-1 rounded-full bg-rose-500 text-white text-xs font-semibold hover:bg-rose-600 transition disabled:opacity-60"
-                            >
-                              رفض
-                            </button>
-                            <button
-                              onClick={() => updateRequestStatus(request, 'pending')}
-                              disabled={requestActionId === request.id}
-                              className="px-3 py-1 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold hover:bg-gray-300 transition disabled:opacity-60"
-                            >
-                              إعادة للمراجعة
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-4">
-                قائمة المطاعم المسجلة
-              </h3>
-              {restaurantsLoading ? (
-                <p className="text-sm text-gray-600">
-                  جارِ تحميل بيانات المطاعم...
-                </p>
-              ) : restaurants.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  لم يتم تسجيل أي مطاعم حتى الآن.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50 text-gray-600">
-                      <tr>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          الاسم
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          المالكة
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          المدينة
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          الحالة
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          آخر تحديث
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {restaurants.map((restaurant) => (
-                        <tr key={restaurant.id} className="hover:bg-yellow-50/60">
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {restaurant.name}
-                          </td>
-                          <td className="px-4 py-3 text-gray-700">
-                            {restaurant.ownerName ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-gray-500">
-                            {restaurant.city ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-primary font-semibold">
-                            {restaurant.statusLabel}
-                          </td>
-                          <td className="px-4 py-3 text-gray-500">
-                            {formatDate(restaurant.createdAt)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-        )
-      case 'reports':
-        return (
-          <section className="space-y-6">
-            <div className="bg-white rounded-3xl shadow-md border border-yellow-200 p-6">
-              <h2 className="text-2xl font-semibold text-primary mb-4">
-                الملخص التحليلي
-              </h2>
-              <div className="grid gap-4 md:grid-cols-3">
-                {reportsMetrics.map((metric) => (
-                  <div
-                    key={metric.title}
-                    className="rounded-2xl border border-gray-200 p-4 bg-gray-50"
-                  >
-                    <p className="text-sm text-gray-500">{metric.title}</p>
-                    <p className="text-2xl font-bold text-primary mt-2">
-                      {metric.value}
-                    </p>
-                    <p className="text-xs text-emerald-600 mt-1">{metric.note}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-4">
-                توزيع حالات الطلبات
-              </h3>
-              {statusBreakdown.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  لم يتم تسجيل أي طلبات حتى الآن.
-                </p>
-              ) : (
-                <ul className="space-y-2 text-sm text-gray-700">
-                  {statusBreakdown.map(([label, count]) => (
-                    <li
-                      key={label}
-                      className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3"
-                    >
-                      <span>{label}</span>
-                      <span className="font-semibold text-primary">
-                        {count} طلب
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-4">
-                أفضل المطاعم أداءً
-              </h3>
-              {topRestaurants.length === 0 ? (
-                <p className="text-sm text-gray-600">
-                  لا تتوفر بيانات كافية لعرض الترتيب.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50 text-gray-600">
-                      <tr>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          المطعم
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          عدد الطلبات
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          إجمالي المبيعات
-                        </th>
-                        <th className="px-4 py-3 text-right font-semibold">
-                          عمولة التطبيق
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {topRestaurants.map((entry) => (
-                        <tr key={entry.name} className="hover:bg-yellow-50/60">
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {entry.name}
-                          </td>
-                          <td className="px-4 py-3 text-gray-700">
-                            {entry.count}
-                          </td>
-                          <td className="px-4 py-3 text-primary font-semibold">
-                            {formatCurrency(entry.total)}
-                          </td>
-                          <td className="px-4 py-3 text-rose-600 font-semibold">
-                            {formatCurrency(entry.commission)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </section>
-        )
-      default:
-        return (
-          <section className="space-y-6">
-            <div className="grid gap-4 md:grid-cols-3">
-              {overviewHighlights.map((highlight) => (
-                <div
-                  key={highlight.title}
-                  className="bg-white rounded-3xl shadow-md p-6 border border-yellow-200"
-                >
-                  <h2 className="text-xl font-semibold text-primary mb-2">
-                    {highlight.title}
-                  </h2>
-                  <p className="text-3xl font-bold text-primary/90">
-                    {highlight.value}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-2">{highlight.note}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-white rounded-3xl shadow-md border border-gray-100 p-6">
-              <h3 className="text-xl font-semibold text-primary mb-3">
-                مهام اليوم
-              </h3>
-              <ul className="space-y-2 text-sm text-gray-700">
-                <li>
-                  • {ordersStats.openCount > 0
-                    ? 'راجعي الطلبات المفتوحة وحدثي حالاتها.'
-                    : 'لا توجد طلبات مفتوحة تنتظر المراجعة.'}
-                </li>
-                <li>
-                  • {pendingRequestsCount > 0
-                    ? `هناك ${pendingRequestsCount} طلب انضمام بحاجة لاعتماد.`
-                    : 'تمت مراجعة جميع طلبات الانضمام.'}
-                </li>
-                <li>
-                  • تابعي أداء المطاعم وراجعي التقارير للتأكد من استقرار الخدمة.
-                </li>
-              </ul>
-            </div>
-
-            <p className="text-sm text-gray-500 text-center">
-              * يمكن ربط هذه الواجهة لاحقاً بعمليات أتمتة إضافية لتحديث حالة
-              المطاعم وإرسال إشعارات فورية للمشرفات.
-            </p>
-          </section>
-        )
+  const handleRequestUpdate = async (requestId: string, status: RestaurantRequest['status']) => {
+    try {
+      await updateDoc(doc(db, 'restaurantRequests', requestId), {
+        status,
+        reviewedAt: serverTimestamp(),
+      })
+      setAlert({ kind: 'success', message: 'تم تحديث حالة الطلب بنجاح.' })
+    } catch (error) {
+      console.error(error)
+      setAlert({ kind: 'error', message: 'تعذر تحديث حالة الطلب، يرجى المحاولة لاحقاً.' })
     }
   }
 
+  const handleCreateRequest = async (form: FormData) => {
+    const name = String(form.get('name') ?? '').trim()
+    const ownerName = String(form.get('ownerName') ?? '').trim()
+    const notes = String(form.get('notes') ?? '').trim()
+
+    if (!name) {
+      setAlert({ kind: 'error', message: 'يرجى إدخال اسم المطعم.' })
+      return
+    }
+
+    try {
+      setCreatingRequest(true)
+      await addDoc(collection(db, 'restaurantRequests'), {
+        name,
+        ownerName: ownerName || null,
+        notes: notes || null,
+        status: 'pending',
+        createdAt: serverTimestamp(),
+      })
+      setAlert({ kind: 'success', message: 'تم إرسال طلب الانضمام، وسيتم مراجعته قريباً.' })
+    } catch (error) {
+      console.error(error)
+      setAlert({ kind: 'error', message: 'تعذر إرسال الطلب، يرجى المحاولة لاحقاً.' })
+    } finally {
+      setCreatingRequest(false)
+    }
+  }
+
+  const handleSubmitNewRequest = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    event.currentTarget.reset()
+    handleCreateRequest(form)
+  }
+
+  useEffect(() => {
+    if (!alert) return
+    const timeout = window.setTimeout(() => setAlert(null), 4000)
+    return () => window.clearTimeout(timeout)
+  }, [alert])
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+        <p className="text-lg font-semibold">يجب تسجيل الدخول كمشرفة للوصول إلى هذه الصفحة.</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
-      <header className="bg-primary text-white p-6 rounded-3xl shadow-lg text-center">
-        <h1 className="text-3xl font-bold">لوحة تحكم المشرفات</h1>
-        <p className="text-lg text-accent/90 mt-2">
-          أهلاً {user?.email ?? 'بك'}! يمكنك إدارة التطبيق من هنا.
-        </p>
+    <div className="min-h-screen bg-slate-950 text-white">
+      <header className="border-b border-white/10 bg-slate-900/70 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-3xl font-extrabold text-yellow-400">لوحة تحكم سفرة البيت</h1>
+            <p className="text-sm text-slate-200">مرحباً {user.email ?? 'مشرفة'}! تابعي مؤشرات الأداء وطلبات الانضمام في مكان واحد.</p>
+          </div>
+          <div className="rounded-2xl bg-white/5 px-4 py-2 text-xs text-slate-200">
+            آخر تحديث: {new Date().toLocaleTimeString('ar-SA')}
+          </div>
+        </div>
       </header>
 
-      <nav className="bg-white rounded-3xl shadow-md border border-yellow-200 p-4">
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`rounded-full border px-5 py-2 text-sm font-semibold transition ${
-                  isActive
-                    ? 'border-primary bg-primary text-white shadow-lg'
-                    : 'border-gray-200 bg-gray-50 text-gray-700 hover:border-primary/60 hover:text-primary'
-                }`}
-              >
-                <div className="flex flex-col items-center">
-                  <span>{tab.label}</span>
-                  <span className="text-[11px] font-normal opacity-80">
-                    {tab.description}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </nav>
+      <main className="mx-auto max-w-6xl px-6 py-10">
+        {alert && (
+          <div
+            className={`mb-6 rounded-3xl border px-4 py-3 text-sm ${
+              alert.kind === 'success'
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+                : 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+            }`}
+          >
+            {alert.message}
+          </div>
+        )}
 
-      {renderActiveTab()}
+        <nav className="grid gap-3 rounded-3xl bg-white/5 p-2 sm:grid-cols-2 lg:grid-cols-4">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`rounded-2xl px-4 py-5 text-right transition focus:outline-none focus:ring-2 focus:ring-yellow-400/60 ${
+                activeTab === tab.id
+                  ? 'bg-yellow-400 text-slate-950 shadow-lg'
+                  : 'bg-slate-900/60 text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <p className="text-base font-semibold">{tab.label}</p>
+              <p className="mt-2 text-xs opacity-80">{tab.description}</p>
+            </button>
+          ))}
+        </nav>
+
+        <section className="mt-8 space-y-8">
+          {activeTab === 'overview' && (
+            <div className="space-y-8">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-3xl bg-gradient-to-br from-yellow-400 to-yellow-500 p-6 text-slate-950 shadow-lg">
+                  <p className="text-sm font-medium">إجمالي الطلبات</p>
+                  <p className="mt-3 text-3xl font-extrabold">{metrics.count}</p>
+                  <p className="mt-1 text-xs text-slate-900/70">آخر ٧ أيام محدثة لحظياً من فواتير المطاعم.</p>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">حصة المنصة</p>
+                  <p className="mt-3 text-2xl font-bold text-yellow-300">{formatCurrency(metrics.commission)}</p>
+                  <p className="mt-1 text-xs text-slate-400">شامل جميع الطلبات المسجلة.</p>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">مستحقات المطاعم</p>
+                  <p className="mt-3 text-2xl font-bold text-emerald-300">{formatCurrency(metrics.restaurant)}</p>
+                  <p className="mt-1 text-xs text-slate-400">يتم تحويلها تلقائياً بعد خصم العمولة.</p>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">طلبات قيد المراجعة</p>
+                  <p className="mt-3 text-2xl font-bold text-sky-300">{metrics.pendingRequests.length}</p>
+                  <p className="mt-1 text-xs text-slate-400">طلبات انضمام المطاعم التي تنتظر الاعتماد.</p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">الطلبات الأخيرة</h2>
+                  <span className="text-xs text-slate-300">يتم التحديث مباشرةً من Firestore</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-right text-sm">
+                    <thead className="text-xs uppercase text-slate-300">
+                      <tr className="border-b border-white/10">
+                        <th className="px-3 py-2">المطعم</th>
+                        <th className="px-3 py-2">التاريخ</th>
+                        <th className="px-3 py-2">الإجمالي</th>
+                        <th className="px-3 py-2">عمولة التطبيق</th>
+                        <th className="px-3 py-2">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-200">
+                      {orders.slice(0, 8).map((order) => (
+                        <tr key={order.id}>
+                          <td className="px-3 py-2 font-medium">{order.restaurantName}</td>
+                          <td className="px-3 py-2">{formatDate(order.createdAt)}</td>
+                          <td className="px-3 py-2">{formatCurrency(order.total)}</td>
+                          <td className="px-3 py-2">{formatCurrency(order.commissionAmount)}</td>
+                          <td className="px-3 py-2">
+                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(order.status)}`}>
+                              {statusLabel(order.status)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {orders.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                            لا توجد طلبات مسجلة حالياً.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'commission' && (
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">إجمالي العمولة</p>
+                  <p className="mt-3 text-3xl font-bold text-yellow-300">{formatCurrency(metrics.commission)}</p>
+                  <p className="mt-1 text-xs text-slate-400">مجموع ما سيتم تحويله إلى رصيد التطبيق.</p>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">إجمالي صافي المطاعم</p>
+                  <p className="mt-3 text-3xl font-bold text-emerald-300">{formatCurrency(metrics.restaurant)}</p>
+                  <p className="mt-1 text-xs text-slate-400">بعد خصم العمولة (15٪) تلقائياً من كل طلب.</p>
+                </div>
+                <div className="rounded-3xl bg-white/5 p-6">
+                  <p className="text-sm text-slate-200">رسوم التوصيل</p>
+                  <p className="mt-3 text-3xl font-bold text-sky-300">{formatCurrency(metrics.delivery)}</p>
+                  <p className="mt-1 text-xs text-slate-400">للاطلاع فقط، لا تدخل ضمن عمولة المنصة.</p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">توزيع شهري</h3>
+                <div className="mt-6 space-y-4">
+                  {metrics.monthlyBreakdown.length === 0 && (
+                    <p className="text-sm text-slate-300">لا يوجد بيانات كافية حالياً.</p>
+                  )}
+                  {metrics.monthlyBreakdown.map((month) => (
+                    <div key={month.month} className="grid gap-4 rounded-2xl bg-slate-900/60 p-4 sm:grid-cols-4">
+                      <div>
+                        <p className="text-xs text-slate-300">الشهر</p>
+                        <p className="text-base font-semibold">{month.month}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-300">عمولة التطبيق</p>
+                        <p className="text-sm font-medium text-yellow-300">{formatCurrency(month.commission)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-300">صافي المطاعم</p>
+                        <p className="text-sm font-medium text-emerald-300">{formatCurrency(month.payout)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-300">عدد الطلبات</p>
+                        <p className="text-sm font-medium text-slate-100">{month.count}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">تفاصيل الاحتساب</h3>
+                <ul className="mt-4 list-disc space-y-2 pr-6 text-sm text-slate-200">
+                  <li>يتم احتساب عمولة التطبيق تلقائياً بنسبة 15٪ من إجمالي الطلب قبل رسوم التوصيل.</li>
+                  <li>يظهر صافي المطعم بعد خصم العمولة مباشرة في سجل الطلب.</li>
+                  <li>يمكن تصدير الأرقام إلى التقارير الشهرية من تبويب التقارير.</li>
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'restaurants' && (
+            <div className="space-y-6">
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">إضافة طلب انضمام جديد</h3>
+                <p className="mt-1 text-sm text-slate-300">يتم إرسال الطلب إلى قائمة المراجعة للموافقة أو الرفض.</p>
+                <form className="mt-6 grid gap-4 md:grid-cols-2" onSubmit={handleSubmitNewRequest}>
+                  <div className="md:col-span-1 space-y-2">
+                    <label htmlFor="restaurant-name" className="text-xs text-slate-200">
+                      اسم المطعم
+                    </label>
+                    <input
+                      id="restaurant-name"
+                      name="name"
+                      required
+                      placeholder="مطعم سفرة البيت"
+                      className="w-full rounded-2xl border border-white/20 bg-slate-900/70 px-4 py-3 text-sm focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/70"
+                    />
+                  </div>
+                  <div className="md:col-span-1 space-y-2">
+                    <label htmlFor="restaurant-owner" className="text-xs text-slate-200">
+                      اسم المالك (اختياري)
+                    </label>
+                    <input
+                      id="restaurant-owner"
+                      name="ownerName"
+                      placeholder="أم أحمد"
+                      className="w-full rounded-2xl border border-white/20 bg-slate-900/70 px-4 py-3 text-sm focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/70"
+                    />
+                  </div>
+                  <div className="md:col-span-2 space-y-2">
+                    <label htmlFor="restaurant-notes" className="text-xs text-slate-200">
+                      ملاحظات إضافية
+                    </label>
+                    <textarea
+                      id="restaurant-notes"
+                      name="notes"
+                      rows={3}
+                      placeholder="روابط السوشيال، نوع المطبخ، أوقات العمل..."
+                      className="w-full rounded-2xl border border-white/20 bg-slate-900/70 px-4 py-3 text-sm focus:border-yellow-400 focus:outline-none focus:ring-2 focus:ring-yellow-400/70"
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={creatingRequest}
+                      className="rounded-2xl bg-yellow-400 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {creatingRequest ? 'جارٍ الإرسال...' : 'إضافة الطلب'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <h3 className="text-lg font-semibold">طلبات الانضمام</h3>
+                  <span className="text-xs text-slate-300">{metrics.pendingRequests.length} طلب قيد المراجعة</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-right text-sm">
+                    <thead className="text-xs uppercase text-slate-300">
+                      <tr className="border-b border-white/10">
+                        <th className="px-3 py-2">المطعم</th>
+                        <th className="px-3 py-2">المالكة</th>
+                        <th className="px-3 py-2">التاريخ</th>
+                        <th className="px-3 py-2">الحالة</th>
+                        <th className="px-3 py-2">التحكم</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-200">
+                      {requests.map((request) => (
+                        <tr key={request.id}>
+                          <td className="px-3 py-2 font-medium">
+                            <div className="space-y-1">
+                              <p>{request.name}</p>
+                              {request.notes && <p className="text-xs text-slate-400">{request.notes}</p>}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">{request.ownerName ?? '—'}</td>
+                          <td className="px-3 py-2">{formatDate(request.createdAt)}</td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${requestBadgeClass(request.status)}`}
+                            >
+                              {request.status === 'pending'
+                                ? 'قيد المراجعة'
+                                : request.status === 'approved'
+                                ? 'تمت الموافقة'
+                                : 'مرفوض'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => handleRequestUpdate(request.id, 'approved')}
+                                className="rounded-2xl bg-emerald-400/20 px-3 py-1 text-xs font-semibold text-emerald-200 hover:bg-emerald-400/30"
+                              >
+                                قبول
+                              </button>
+                              <button
+                                onClick={() => handleRequestUpdate(request.id, 'rejected')}
+                                className="rounded-2xl bg-rose-400/20 px-3 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-400/30"
+                              >
+                                رفض
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {requests.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                            لا توجد طلبات حالياً.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">المطاعم النشطة</h3>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-right text-sm">
+                    <thead className="text-xs uppercase text-slate-300">
+                      <tr className="border-b border-white/10">
+                        <th className="px-3 py-2">المطعم</th>
+                        <th className="px-3 py-2">المالكة</th>
+                        <th className="px-3 py-2">المدينة</th>
+                        <th className="px-3 py-2">تاريخ الإضافة</th>
+                        <th className="px-3 py-2">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5 text-slate-200">
+                      {restaurants.map((restaurant) => (
+                        <tr key={restaurant.id}>
+                          <td className="px-3 py-2 font-medium">{restaurant.name}</td>
+                          <td className="px-3 py-2">{restaurant.ownerName ?? '—'}</td>
+                          <td className="px-3 py-2">{restaurant.city ?? '—'}</td>
+                          <td className="px-3 py-2">{formatDate(restaurant.createdAt)}</td>
+                          <td className="px-3 py-2">
+                            <span className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-semibold">
+                              {restaurant.status ?? 'نشط'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {restaurants.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                            لم يتم تسجيل مطاعم بعد.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                {Object.entries(metrics.byStatus).map(([status, count]) => (
+                  <div key={status} className="rounded-3xl bg-white/5 p-6">
+                    <p className="text-sm text-slate-200">{statusLabel(status)}</p>
+                    <p className="mt-3 text-3xl font-bold text-white">{count}</p>
+                    <p className="mt-1 text-xs text-slate-400">نسبة {((count / (metrics.count || 1)) * 100).toFixed(1)}٪ من إجمالي الطلبات.</p>
+                  </div>
+                ))}
+                {Object.keys(metrics.byStatus).length === 0 && (
+                  <p className="rounded-3xl bg-white/5 p-6 text-sm text-slate-300">
+                    لا تتوفر بيانات كافية لإظهار التقارير.
+                  </p>
+                )}
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">ملاحظات تشغيلية</h3>
+                <ul className="mt-4 list-disc space-y-2 pr-6 text-sm text-slate-200">
+                  <li>تحققي من الطلبات التي تحمل حالة «قيد المراجعة» أو «ملغي» للتأكد من تحديث الحالة لدى المطعم.</li>
+                  <li>قومي بمراجعة طلبات الانضمام الجديدة بشكل يومي لضمان إضافة المطاعم إلى التطبيق دون تأخير.</li>
+                  <li>استخدمي تبويب العمولة لمراجعة التحويلات قبل نهاية كل شهر.</li>
+                </ul>
+              </div>
+
+              <div className="rounded-3xl bg-white/5 p-6">
+                <h3 className="text-lg font-semibold">تصدير التقارير</h3>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <button className="rounded-2xl bg-yellow-400/20 px-4 py-3 text-sm font-semibold text-yellow-200 hover:bg-yellow-400/30">
+                    تنزيل تقرير شهر حالي
+                  </button>
+                  <button className="rounded-2xl bg-yellow-400/20 px-4 py-3 text-sm font-semibold text-yellow-200 hover:bg-yellow-400/30">
+                    تقرير العمولات التفصيلي
+                  </button>
+                  <button className="rounded-2xl bg-yellow-400/20 px-4 py-3 text-sm font-semibold text-yellow-200 hover:bg-yellow-400/30">
+                    تقرير أداء المطاعم
+                  </button>
+                  <button className="rounded-2xl bg-yellow-400/20 px-4 py-3 text-sm font-semibold text-yellow-200 hover:bg-yellow-400/30">
+                    أرشيف الطلبات المكتمل
+                  </button>
+                </div>
+                <p className="mt-4 text-xs text-slate-400">
+                  يتم تحضير ملفات CSV قابلة للتصدير لاحقاً، حالياً الأزرار للعرض فقط وتمثل المهام القادمة للفريق التقني.
+                </p>
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
     </div>
   )
 }
+
+export { AdminDashboard }
+export default AdminDashboard
