@@ -59,7 +59,7 @@ export const Register: React.FC = () => {
         />
 
         {/* اختيار نوع الحساب */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           <label className={"border rounded-xl p-3 text-center cursor-pointer " + (role==='customer'?'bg-yellow-500 text-black':'bg-gray-100 text-gray-800')}>
             <input type="radio" name="role" value="customer" className="hidden" onChange={()=>setRole('customer')} /> عميل
           </label>
