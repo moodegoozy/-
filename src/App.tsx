@@ -13,6 +13,8 @@ import { OwnerDashboard } from './pages/OwnerDashboard'
 import { ManageMenu } from './pages/ManageMenu'
 import { OrdersAdmin } from './pages/OrdersAdmin'
 import { CourierApp } from './pages/CourierApp'
+import { AdminLogin } from './pages/AdminLogin'
+import { AdminDashboard } from './pages/AdminDashboard'
 import { ProtectedRoute } from './routes/ProtectedRoute'
 import { RoleGate } from './routes/RoleGate'
 import { EditRestaurant } from './pages/EditRestaurant'
@@ -53,6 +55,7 @@ export default function App() {
           <Route path="/restaurants" element={<RestaurantsPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/register" element={<Register />} />
           <Route path="/cart" element={<CartPage />} />
           <Route path="/developer" element={<Developer />} />
@@ -152,6 +155,17 @@ export default function App() {
               <ProtectedRoute>
                 <RoleGate allow={['courier']}>
                   <CourierHiring />
+                </RoleGate>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/panel"
+            element={
+              <ProtectedRoute redirectTo="/admin/login">
+                <RoleGate allow={['admin']}>
+                  <AdminDashboard />
                 </RoleGate>
               </ProtectedRoute>
             }

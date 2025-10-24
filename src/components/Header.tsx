@@ -75,6 +75,11 @@ export const Header: React.FC = () => {
             </>
           )}
 
+          {/* 🛡️ المشرفة */}
+          {role === "admin" && (
+            <NavLink to="/admin/panel" label="لوحة المشرفات" />
+          )}
+
           {/* دخول/خروج */}
           {user ? (
             <button
@@ -84,7 +89,10 @@ export const Header: React.FC = () => {
               خروج
             </button>
           ) : (
-            <NavLink to="/login" label="دخول" />
+            <>
+              <NavLink to="/login" label="دخول" />
+              <NavLink to="/admin/login" label="دخول المشرفات" />
+            </>
           )}
         </nav>
 
@@ -159,6 +167,15 @@ export const Header: React.FC = () => {
             </>
           )}
 
+          {/* 🛡️ المشرفة */}
+          {role === "admin" && (
+            <NavLink
+              to="/admin/panel"
+              label="لوحة المشرفات"
+              onClick={() => setOpen(false)}
+            />
+          )}
+
           {user ? (
             <button
               onClick={() => {
@@ -170,11 +187,18 @@ export const Header: React.FC = () => {
               خروج
             </button>
           ) : (
-            <NavLink
-              to="/login"
-              label="دخول"
-              onClick={() => setOpen(false)}
-            />
+            <>
+              <NavLink
+                to="/login"
+                label="دخول"
+                onClick={() => setOpen(false)}
+              />
+              <NavLink
+                to="/admin/login"
+                label="دخول المشرفات"
+                onClick={() => setOpen(false)}
+              />
+            </>
           )}
         </div>
       )}
