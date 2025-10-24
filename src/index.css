@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+/* ✅ أنيميشن النص يمشي */
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+.marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 12s linear infinite;
+}
+/* ✅ خلي النصوص داخل الفورم سوداء في أي بطاقة بيضاء */
+.bg-white input,
+.bg-white textarea,
+.bg-white select {
+  color: black !important;
+}
+
+.bg-white input::placeholder,
+.bg-white textarea::placeholder {
+  color: #6b7280 !important; /* رمادي لطيف */
+}

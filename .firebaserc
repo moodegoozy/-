@@ -1,0 +1,10 @@
+{
+  "projects": {
+    "default": "mymw-5f0ca",
+    "albayt": "albayt-sofra",
+    "sofratAlbayt": "albayt-sofra",
+    "albayt_food": "albayt-sofra"
+  },
+  "targets": {},
+  "etags": {}
+}

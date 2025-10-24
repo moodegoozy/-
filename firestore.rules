@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isOwner() {
+      return signedIn() && myRole() == 'owner';
+    }
+
+    function isCourier() {
+      return signedIn() && myRole() == 'courier';
+    }
+
+    function isCustomer() {
+      return signedIn() && myRole() == 'customer';
+    }
+
+    /* ===== users ===== */
+    match /users/{uid} {
+      allow read: if isOwner() || (signedIn() && request.auth.uid == uid);
+      allow create: if signedIn() && request.auth.uid == uid;
+      allow update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    /* ===== menu ===== */
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow create, update, delete: if isOwner();
+    }
+
+    /* ===== orders ===== */
+    match /orders/{orderId} {
+      allow read: if isOwner()
+                  || (isCourier() && (resource.data.courierId == request.auth.uid || resource.data.status in ['ready', 'out_for_delivery']))
+                  || (isCustomer() && resource.data.customerId == request.auth.uid);
+
+      allow create: if isCustomer() && request.resource.data.customerId == request.auth.uid;
+
+      allow update: if isOwner()
+                    || (isCourier() && resource.data.courierId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    /* ===== settings (single doc like settings/general) ===== */
+    match /settings/{doc} {
+      allow read: if true;
+      allow create, update, delete: if isOwner();
+    }
+  }
+}
