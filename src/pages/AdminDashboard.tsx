@@ -155,7 +155,7 @@ const requestBadgeClass = (status: RestaurantRequest['status']) => {
   }
 }
 
-const AdminDashboard: React.FC = () => {
+export const AdminDashboard: React.FC = () => {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [orders, setOrders] = useState<NormalizedOrder[]>([])
