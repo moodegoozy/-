@@ -110,29 +110,55 @@ export const TrackOrders: React.FC = () => {
         </div>
       )}
 
-      {orders.map((o) => (
-        <div key={o.id} className="bg-white rounded-2xl shadow p-4">
-          <div className="flex items-center justify-between">
-            <div className="font-bold">طلب #{o.id.slice(-6)}</div>
-            <div className="text-sm px-3 py-1 rounded-full bg-gray-900 text-white">
-              {badge(o.status)}
+      {orders.map((o) => {
+        const deliveryFee = Number(o.deliveryFee ?? 0)
+        const baseAmount = Number(o.restaurantPayout ?? o.subtotal ?? 0)
+        const commissionRate = Number(o.commissionRate ?? 0.15)
+        const commissionAmountRaw =
+          o.applicationShare ??
+          o.commissionAmount ??
+          (Number.isFinite(baseAmount) ? +(baseAmount * commissionRate).toFixed(2) : 0)
+        const commissionAmount = Number(commissionAmountRaw)
+        const fallbackTotal =
+          Number.isFinite(baseAmount) && Number.isFinite(commissionAmount) && Number.isFinite(deliveryFee)
+            ? baseAmount + commissionAmount + deliveryFee
+            : 0
+        const customerTotal = Number(o.total ?? fallbackTotal)
+        const formatAmount = (value: number) =>
+          Number.isFinite(value) ? value.toFixed(2) : '0.00'
+
+        return (
+          <div key={o.id} className="bg-white rounded-2xl shadow p-4">
+            <div className="flex items-center justify-between">
+              <div className="font-bold">طلب #{o.id.slice(-6)}</div>
+              <div className="text-sm px-3 py-1 rounded-full bg-gray-900 text-white">
+                {badge(o.status)}
+              </div>
+            </div>
+
+            {o.restaurantName && (
+              <div className="mt-1 text-yellow-600 font-semibold">
+                المطعم: {o.restaurantName}
+              </div>
+            )}
+
+            <div className="mt-2 text-sm text-gray-700">
+              {o.items?.map((i: any) => `${i.name}×${i.qty}`).join(' • ')}
+            </div>
+            <div className="mt-2 font-bold">
+              الإجمالي المدفوع: {formatAmount(customerTotal)} ر.س
+            </div>
+            <div className="mt-1 text-xs text-gray-500 leading-relaxed">
+              يشمل حصة المطعم بقيمة <span className="font-semibold text-gray-700">{formatAmount(baseAmount)} ر.س</span>
+              {' '}وضريبة التطبيق بنسبة 15٪ بمبلغ
+              {' '}
+              <span className="font-semibold text-gray-700">{formatAmount(commissionAmount)} ر.س</span> بالإضافة إلى رسوم التوصيل
+              {' '}
+              <span className="font-semibold text-gray-700">{formatAmount(deliveryFee)} ر.س</span>.
             </div>
           </div>
-
-          {o.restaurantName && (
-            <div className="mt-1 text-yellow-600 font-semibold">
-              المطعم: {o.restaurantName}
-            </div>
-          )}
-
-          <div className="mt-2 text-sm text-gray-700">
-            {o.items?.map((i: any) => `${i.name}×${i.qty}`).join(' • ')}
-          </div>
-          <div className="mt-2 font-bold">
-            المجموع: {o.total?.toFixed?.(2)} ر.س
-          </div>
-        </div>
-      ))}
+        )
+      })}
 
       {orders.length === 0 && !err && (
         <div className="text-gray-600">لا توجد طلبات حتى الآن.</div>

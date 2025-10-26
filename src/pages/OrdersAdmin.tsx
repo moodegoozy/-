@@ -86,67 +86,100 @@ export const OrdersAdmin: React.FC = () => {
 
       {error && <div className="text-red-500 text-sm mb-2">{error}</div>}
 
-      {orders.map((o: any) => (
-        <div 
-          key={o.id} 
-          className="bg-white rounded-2xl shadow-xl p-5 text-gray-900 space-y-4 transition hover:shadow-2xl"
-        >
-          {/* 🧾 رأس الطلب */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="font-bold text-lg">
-              طلب #{o.id.slice(-6)} 
-              <span className="text-gray-500 text-sm ml-2">
-                {o.items?.map((i:any)=>`${i.name}×${i.qty}`).join(' • ')}
+      {orders.map((o: any) => {
+        const deliveryFee = Number(o.deliveryFee ?? 0)
+        const baseAmount = Number(o.restaurantPayout ?? o.subtotal ?? 0)
+        const commissionRate = Number(o.commissionRate ?? 0.15)
+        const commissionAmountRaw =
+          o.applicationShare ??
+          o.commissionAmount ??
+          (Number.isFinite(baseAmount) ? +(baseAmount * commissionRate).toFixed(2) : 0)
+        const commissionAmount = Number(commissionAmountRaw)
+        const fallbackTotal =
+          Number.isFinite(baseAmount) && Number.isFinite(commissionAmount) && Number.isFinite(deliveryFee)
+            ? baseAmount + commissionAmount + deliveryFee
+            : 0
+        const customerTotal = Number(o.total ?? fallbackTotal)
+        const formatAmount = (value: number) =>
+          Number.isFinite(value) ? value.toFixed(2) : '0.00'
+
+        return (
+          <div
+            key={o.id}
+            className="bg-white rounded-2xl shadow-xl p-5 text-gray-900 space-y-4 transition hover:shadow-2xl"
+          >
+            {/* 🧾 رأس الطلب */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="font-bold text-lg">
+                طلب #{o.id.slice(-6)}
+                <span className="text-gray-500 text-sm ml-2">
+                  {o.items?.map((i:any)=>`${i.name}×${i.qty}`).join(' • ')}
+                </span>
+              </div>
+              <div className="font-extrabold text-xl text-green-600">{formatAmount(customerTotal)} ر.س</div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 text-sm text-gray-700">
+              <div className="rounded-xl bg-yellow-50 border border-yellow-200 p-3">
+                <p className="text-xs text-gray-500">حصة المطعم</p>
+                <p className="text-base font-semibold text-primary">{formatAmount(baseAmount)} ر.س</p>
+              </div>
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-3">
+                <p className="text-xs text-gray-500">ضريبة التطبيق (15٪)</p>
+                <p className="text-base font-semibold text-rose-600">{formatAmount(commissionAmount)} ر.س</p>
+              </div>
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+                <p className="text-xs text-gray-500">رسوم التوصيل</p>
+                <p className="text-base font-semibold text-emerald-600">{formatAmount(deliveryFee)} ر.س</p>
+              </div>
+            </div>
+
+            {/* 📌 الحالة الحالية */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">الحالة:</span>
+              <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusColor(o.status)}`}>
+                {badge(o.status || 'pending')}
               </span>
             </div>
-            <div className="font-extrabold text-xl text-green-600">{o.total?.toFixed?.(2)} ر.س</div>
-          </div>
 
-          {/* 📌 الحالة الحالية */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">الحالة:</span>
-            <span className={`px-3 py-1 rounded-full text-sm font-bold ${statusColor(o.status)}`}>
-              {badge(o.status || 'pending')}
-            </span>
-          </div>
-
-          {/* 🏠 العنوان */}
-          <div className="text-sm text-gray-700">
-            <span className="font-semibold">العنوان:</span> {o.address}
-          </div>
-
-          {/* 🗺️ موقع العميل على الخريطة */}
-          {o.location && (
-            <div className="mt-3">
-              <h3 className="font-semibold text-sm text-gray-800 mb-2">📍 موقع العميل:</h3>
-              <iframe
-                title={`map-${o.id}`}
-                width="100%"
-                height="250"
-                style={{ borderRadius: '12px' }}
-                loading="lazy"
-                allowFullScreen
-                src={`https://www.google.com/maps?q=${o.location.lat},${o.location.lng}&hl=ar&z=15&output=embed`}
-              ></iframe>
+            {/* 🏠 العنوان */}
+            <div className="text-sm text-gray-700">
+              <span className="font-semibold">العنوان:</span> {o.address}
             </div>
-          )}
 
-          {/* 🔘 أزرار تغيير الحالة */}
-          <div className="mt-3 grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
-            {['accepted','preparing','ready','out_for_delivery','delivered','cancelled'].map(s => {
-              return (
-                <button 
-                  key={s} 
-                  onClick={()=>updateStatus(o.id, s)} 
-                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 hover:bg-gray-200 transition"
-                >
-                  {badge(s)}
-                </button>
-              )
-            })}
+            {/* 🗺️ موقع العميل على الخريطة */}
+            {o.location && (
+              <div className="mt-3">
+                <h3 className="font-semibold text-sm text-gray-800 mb-2">📍 موقع العميل:</h3>
+                <iframe
+                  title={`map-${o.id}`}
+                  width="100%"
+                  height="250"
+                  style={{ borderRadius: '12px' }}
+                  loading="lazy"
+                  allowFullScreen
+                  src={`https://www.google.com/maps?q=${o.location.lat},${o.location.lng}&hl=ar&z=15&output=embed`}
+                ></iframe>
+              </div>
+            )}
+
+            {/* 🔘 أزرار تغيير الحالة */}
+            <div className="mt-3 grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+              {['accepted','preparing','ready','out_for_delivery','delivered','cancelled'].map(s => {
+                return (
+                  <button
+                    key={s}
+                    onClick={()=>updateStatus(o.id, s)}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold bg-gray-100 hover:bg-gray-200 transition"
+                  >
+                    {badge(s)}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
 
       {orders.length === 0 && !error && (
         <div className="text-gray-400 text-center text-lg">🚫 لا توجد طلبات حالياً.</div>

@@ -1,5 +1,5 @@
 // src/firebase.ts
-import { initializeApp } from "firebase/app"
+import { initializeApp, getApps } from "firebase/app"
 import { getAuth } from "firebase/auth"
 import { getFirestore } from "firebase/firestore"
 import { getStorage } from "firebase/storage"
@@ -23,3 +23,11 @@ export const db = getFirestore(app)
 
 // ✅ التخزين مربوط بالبكت الجديد
 export const storage = getStorage(app, "gs://albayt-sofra.firebasestorage.app")
+
+const SECONDARY_APP_NAME = 'admin-provisioning'
+
+export const getAdminProvisioningAuth = () => {
+  const existing = getApps().find((candidate) => candidate.name === SECONDARY_APP_NAME)
+  const secondaryApp = existing ?? initializeApp(firebaseConfig, SECONDARY_APP_NAME)
+  return getAuth(secondaryApp)
+}
