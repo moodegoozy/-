@@ -25,7 +25,15 @@ type Restaurant = {
 export const MenuPage: React.FC = () => {
   const [items, setItems] = useState<(Item & { restaurant?: Restaurant })[]>([])
   const [loading, setLoading] = useState(true)
-  const { add, subtotal, items: cartItems } = useCart()
+  const {
+    add,
+    subtotal,
+    items: cartItems,
+    applicationFeeTotal,
+    applicationFeePerItem,
+    getUnitPriceWithFees,
+    totalWithFees,
+  } = useCart()
   const { role } = useAuth()   // ✅ نجيب الدور
 
   useEffect(() => {
@@ -133,7 +141,14 @@ export const MenuPage: React.FC = () => {
 
             {/* السعر + زر الإضافة */}
             <div className="mt-3 flex items-center justify-between">
-              <span className="font-bold text-xl text-yellow-400">{it.price.toFixed(2)} ر.س</span>
+              <div className="flex flex-col">
+                <span className="font-bold text-xl text-yellow-400">
+                  {getUnitPriceWithFees(it.price).toFixed(2)} ر.س
+                </span>
+                <span className="text-xs text-gray-300">
+                  السعر الأصلي {it.price.toFixed(2)} ر.س + رسوم التشغيل {applicationFeePerItem.toFixed(2)} ر.س
+                </span>
+              </div>
               
               {/* ✅ زر الإضافة يظهر فقط للعميل */}
               {role === 'customer' && (
@@ -157,12 +172,15 @@ export const MenuPage: React.FC = () => {
       {/* ✅ السلة تظهر فقط للعميل */}
       {subtotal > 0 && role === 'customer' && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2">
-          <Link 
-            to="/checkout" 
+          <Link
+            to="/checkout"
             className="px-6 py-3 rounded-full bg-yellow-500 text-black shadow-xl font-bold hover:bg-yellow-600 transition"
           >
-            إتمام الطلب • المجموع: {subtotal.toFixed(2)} ر.س
+            إتمام الطلب • المجموع: {totalWithFees.toFixed(2)} ر.س
           </Link>
+          <div className="mt-1 text-center text-xs text-gray-200">
+            يشمل رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س لكل منتج)
+          </div>
         </div>
       )}
     </div>
