@@ -47,6 +47,27 @@ const taskReports: TaskReport[] = [
   { id: 3, title: 'حملة إعلانية لشهر رمضان', owner: 'جود العتيبي', status: 'متأخر', progress: 35, dueDate: '10 أبريل 2024' },
 ]
 
+const explanationCards = [
+  {
+    title: 'الإدارة المالية',
+    description:
+      'توفر لك الأرقام الأساسية نظرة سريعة على أداء المنصة؛ من خلال مقارنة الدخل والمصروفات ومراقبة صافي الربح لمعرفة أين يجب تعزيز الاستثمار أو ضبط التكاليف.',
+    highlights: ['بطاقات ملونة تبين الدخل والمصروفات وصافي الربح', 'جدول تفصيلي لكل بند مع الملاحظات المرتبطة به'],
+  },
+  {
+    title: 'قسم الموظفات',
+    description:
+      'يمكنك إضافة موظفة جديدة وتحديث بيانات الفريق بسهولة، مع متابعة حالة التوظيف ونسبة العمولة المحققة لكل عضو من خلال شريط التقدم.',
+    highlights: ['نموذج تسجيل يضم الاسم، الوظيفة، البريد، ونسبة العمولة', 'بطاقات تعرض حالة كل موظفة ونسبة تحقيق الأهداف'],
+  },
+  {
+    title: 'تقارير المهام',
+    description:
+      'تعرض البطاقات حالة كل مهمة، والمسؤولة عنها، وتاريخ التسليم المتوقع، مع مؤشرات لونية لتوضيح مستوى التقدم ودرجة الأولوية.',
+    highlights: ['وسوم الحالة بالألوان تبين المهام المكتملة والمتأخرة', 'شريط تقدم مرئي يساعد على قراءة نسبة الإنجاز مباشرة'],
+  },
+]
+
 const currencyFormatter = new Intl.NumberFormat('ar-SA', {
   style: 'currency',
   currency: 'SAR',
@@ -126,6 +147,23 @@ export const Developer: React.FC = () => {
           توفر هذه اللوحة نظرة شاملة على الوضع المالي، حالة الموظفات، والتقدم في المهام التشغيلية لتسهيل متابعة عمل المنصة بشكل يومي.
         </p>
       </header>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        {explanationCards.map((card) => (
+          <article key={card.title} className="flex flex-col rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-md backdrop-blur">
+            <h2 className="text-lg font-semibold text-slate-900">{card.title}</h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-600">{card.description}</p>
+            <ul className="mt-4 space-y-2 text-sm text-slate-500">
+              {card.highlights.map((highlight) => (
+                <li key={highlight} className="flex items-start gap-2">
+                  <span className="mt-1 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
+                  <span>{highlight}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))}
+      </section>
 
       <section className="rounded-2xl bg-white/80 p-6 shadow-lg backdrop-blur">
         <div className="mb-6 flex items-center justify-between">
