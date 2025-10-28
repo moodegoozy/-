@@ -1,5 +1,5 @@
 // src/pages/AdsPage.tsx
-import React from 'react'
+import React, { useState } from 'react'
 
 type Campaign = {
   id: string
@@ -51,6 +51,22 @@ export const AdsPage: React.FC = () => {
   const active = campaigns.filter(c => c.status === 'active')
   const scheduled = campaigns.filter(c => c.status === 'scheduled')
   const completed = campaigns.filter(c => c.status === 'completed')
+  const [request, setRequest] = useState({
+    businessName: '',
+    objective: '',
+    contact: '',
+    fee: 25,
+  })
+  const [submissionMessage, setSubmissionMessage] = useState<string | null>(null)
+
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmissionMessage(
+      `تم تسجيل طلب الإعلان للجهة «${request.businessName || 'بدون اسم'}» برسوم رمزية قدرها ${request.fee.toFixed(
+        2,
+      )} ر.س، وسيتم التواصل معك عبر ${request.contact || 'البريد المسجل'} خلال 24 ساعة.`,
+    )
+  }
 
   return (
     <div className="py-12 space-y-10">
@@ -179,6 +195,83 @@ export const AdsPage: React.FC = () => {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-accent/40 bg-accent/10 p-6 space-y-6">
+        <div className="space-y-2">
+          <h3 className="text-xl font-semibold text-accent">💡 طلب إعلان داخل التطبيق</h3>
+          <p className="text-sm text-gray-100">
+            وفرنا لك خانة خاصة بطلب إعلانات داخل التطبيق برسوم رمزية تساعد على تغطية تكلفة النشر والمتابعة. عرّفينا
+            بحملتك وأرسلي بيانات التواصل ليتم اعتمادها سريعاً.
+          </p>
+        </div>
+
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="grid md:grid-cols-2 gap-4">
+            <label className="space-y-2 text-sm text-gray-100">
+              <span className="block font-semibold text-white">اسم الجهة أو الحملة</span>
+              <input
+                type="text"
+                value={request.businessName}
+                onChange={event => setRequest(prev => ({ ...prev, businessName: event.target.value }))}
+                className="w-full rounded-2xl bg-dark/60 border border-white/10 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-accent/60"
+                placeholder="مثل: حملة رمضان للأسر المنتجة"
+              />
+            </label>
+            <label className="space-y-2 text-sm text-gray-100">
+              <span className="block font-semibold text-white">وسيلة التواصل المفضلة</span>
+              <input
+                type="text"
+                value={request.contact}
+                onChange={event => setRequest(prev => ({ ...prev, contact: event.target.value }))}
+                className="w-full rounded-2xl bg-dark/60 border border-white/10 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-accent/60"
+                placeholder="البريد الإلكتروني أو رقم الجوال"
+              />
+            </label>
+          </div>
+          <label className="space-y-2 text-sm text-gray-100">
+            <span className="block font-semibold text-white">هدف الإعلان</span>
+            <textarea
+              value={request.objective}
+              onChange={event => setRequest(prev => ({ ...prev, objective: event.target.value }))}
+              className="w-full rounded-2xl bg-dark/60 border border-white/10 px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-accent/60 min-h-[120px]"
+              placeholder="اشرحي نوع المحتوى المراد نشره وروابط المنتجات المستهدفة"
+            />
+          </label>
+          <label className="space-y-3 text-sm text-gray-100">
+            <span className="block font-semibold text-white">الرسوم الرمزية للإعلان</span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <input
+                type="range"
+                min={10}
+                max={100}
+                step={5}
+                value={request.fee}
+                onChange={event => setRequest(prev => ({ ...prev, fee: Number(event.target.value) }))}
+                className="flex-1 accent-accent"
+              />
+              <div className="px-4 py-2 rounded-2xl bg-dark/70 border border-white/10 text-white font-semibold text-center">
+                {request.fee.toFixed(2)} ر.س
+              </div>
+            </div>
+            <p className="text-xs text-gray-300">
+              يشمل المبلغ الضريبة المضافة ورسوم المراجعة من قبل فريق المحتوى. اختر القيمة المناسبة، ويتم خصمها بعد
+              الموافقة النهائية على الإعلان.
+            </p>
+          </label>
+          <button
+            type="submit"
+            className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-accent text-primary font-semibold shadow-lg hover:shadow-xl transition"
+          >
+            📮 حجز مساحة الإعلان
+          </button>
+        </form>
+
+        {submissionMessage && (
+          <div className="rounded-2xl border border-green-400/40 bg-green-500/10 px-4 py-3 text-sm text-green-200">
+            {submissionMessage}
+          </div>
+        )}
       </section>
 
       <section className="rounded-3xl border border-yellow-500/40 bg-yellow-500/10 p-6 space-y-4">
