@@ -22,6 +22,7 @@ import { Landing } from './pages/Landing'
 import { CartPage } from './pages/CartPage'
 import { Developer } from './pages/Developer'
 import { RestaurantsPage } from './pages/RestaurantsPage'
+import { AdsPage } from './pages/AdsPage'
 
 // ✅ صفحات إضافية
 import { CourierHiring } from './pages/CourierHiring'
@@ -63,6 +64,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/cart" element={<CartPage />} />
           <Route path="/developer" element={<Developer />} />
+          <Route path="/ads" element={<AdsPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
           {/* ✅ صفحة تم حذف الحساب */}

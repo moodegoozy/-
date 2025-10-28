@@ -45,6 +45,7 @@ export const Header: React.FC = () => {
         {/* أزرار الديسكتوب */}
         <nav className="hidden md:flex items-center gap-3">
           <NavLink to="/restaurants" label="المطاعم" />
+          <NavLink to="/ads" label="الإعلانات" />
 
           {/* 👤 العميل فقط */}
           {role === "customer" && (
@@ -106,11 +107,16 @@ export const Header: React.FC = () => {
       </div>
 
       {/* قائمة الجوال */}
-      {open && (
+          {open && (
         <div className="md:hidden bg-primary border-t-2 border-accent px-4 py-3 flex flex-col gap-2 text-secondary shadow-inner">
           <NavLink
             to="/restaurants"
             label="المطاعم"
+            onClick={() => setOpen(false)}
+          />
+          <NavLink
+            to="/ads"
+            label="الإعلانات"
             onClick={() => setOpen(false)}
           />
 
