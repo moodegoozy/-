@@ -4,7 +4,17 @@ import { useCart } from "@/hooks/useCart"
 import { Link } from "react-router-dom"
 
 export const CartPage: React.FC = () => {
-  const { items, subtotal, remove, clear } = useCart()
+  const {
+    items,
+    subtotal,
+    remove,
+    clear,
+    applicationFeePerItem,
+    applicationFeeTotal,
+    getItemTotalWithFees,
+    getUnitPriceWithFees,
+    totalWithFees,
+  } = useCart()
 
   if (items.length === 0) {
     return <div className="text-center text-gray-400 mt-20">🛒 السلة فارغة</div>
@@ -22,7 +32,17 @@ export const CartPage: React.FC = () => {
           <div>
             <div className="font-semibold">{i.name}</div>
             <div className="text-sm text-gray-600">الكمية: {i.qty}</div>
-            <div className="font-bold">{(i.price * i.qty).toFixed(2)} ر.س</div>
+            <div className="space-y-1">
+              <div className="font-bold text-lg text-gray-900">
+                {getItemTotalWithFees(i).toFixed(2)} ر.س
+              </div>
+              <div className="text-xs text-gray-500">
+                ({getUnitPriceWithFees(i.price).toFixed(2)} ر.س لكل وجبة بعد الرسوم)
+              </div>
+              <div className="text-[11px] text-gray-400">
+                السعر الأصلي {i.price.toFixed(2)} ر.س + رسوم التشغيل {applicationFeePerItem.toFixed(2)} ر.س
+              </div>
+            </div>
 
             {/* ✅ للتأكد أن كل صنف مرتبط بمطعم */}
             <div className="text-xs text-gray-500">
@@ -38,8 +58,19 @@ export const CartPage: React.FC = () => {
         </div>
       ))}
 
-      <div className="font-bold text-xl text-right">
-        المجموع: {subtotal.toFixed(2)} ر.س
+      <div className="bg-white text-gray-800 rounded-xl p-4 shadow space-y-2 text-sm">
+        <div className="flex items-center justify-between">
+          <span>المجموع الأساسي</span>
+          <span className="font-semibold">{subtotal.toFixed(2)} ر.س</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س × {items.reduce((sum, item) => sum + item.qty, 0)})</span>
+          <span className="font-semibold">{applicationFeeTotal.toFixed(2)} ر.س</span>
+        </div>
+        <div className="flex items-center justify-between text-lg font-bold text-gray-900 border-t pt-2">
+          <span>الإجمالي مع الرسوم</span>
+          <span>{totalWithFees.toFixed(2)} ر.س</span>
+        </div>
       </div>
 
       <div className="flex gap-3 justify-end">
