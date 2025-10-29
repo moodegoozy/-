@@ -1,0 +1,35 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🔹 سحب المستودع
+        uses: actions/checkout@v3
+
+      - name: 🔹 تثبيت Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: 🔹 تثبيت الحزم
+        run: npm install
+
+      - name: 🔹 بناء المشروع
+        run: npm run build
+
+      - name: 🔹 تثبيت أدوات Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: 🔹 نشر إلى Firebase Hosting
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          firebase deploy --only hosting
