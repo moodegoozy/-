@@ -9,6 +9,7 @@ export type CartItem = {
 }
 
 const KEY = 'broast_cart'
+const APPLICATION_FEE_PER_ITEM = 1.15
 
 export function useCart() {
   const [items, setItems] = useState<CartItem[]>(() => {
@@ -49,6 +50,22 @@ export function useCart() {
   const clear = () => setItems([])
 
   const subtotal = items.reduce((s, it) => s + it.price * it.qty, 0)
+  const applicationFeeTotal = items.reduce((sum, it) => sum + APPLICATION_FEE_PER_ITEM * it.qty, 0)
+  const totalWithFees = subtotal + applicationFeeTotal
+  const getItemTotalWithFees = (item: CartItem) => (item.price + APPLICATION_FEE_PER_ITEM) * item.qty
+  const getUnitPriceWithFees = (basePrice: number) => basePrice + APPLICATION_FEE_PER_ITEM
 
-  return { items, add, remove, changeQty, clear, subtotal }
+  return {
+    items,
+    add,
+    remove,
+    changeQty,
+    clear,
+    subtotal,
+    totalWithFees,
+    applicationFeePerItem: APPLICATION_FEE_PER_ITEM,
+    applicationFeeTotal,
+    getItemTotalWithFees,
+    getUnitPriceWithFees,
+  }
 }
