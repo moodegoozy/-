@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/auth'
 
 type Props = {
-  allow: Array<'owner' | 'courier' | 'customer' | 'admin'>,
+  allow: Array<'owner' | 'courier' | 'customer' | 'admin' | 'developer'>,
   children: React.ReactNode
 }
 

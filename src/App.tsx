@@ -36,8 +36,6 @@ import AccountDeleted from './pages/AccountDeleted'
 
 // ✅ صفحة سياسة الخصوصية
 import PrivacyPolicy from './pages/PrivacyPolicy'
-import FamilyLogin from './pages/FamilyLogin'
-import RestaurantLogin from './pages/RestaurantLogin'
 
 export default function App() {
   return (
@@ -58,12 +56,19 @@ export default function App() {
           <Route path="/restaurants" element={<RestaurantsPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/login/family" element={<FamilyLogin />} />
-          <Route path="/login/restaurant" element={<RestaurantLogin />} />
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/register" element={<Register />} />
           <Route path="/cart" element={<CartPage />} />
-          <Route path="/developer" element={<Developer />} />
+          <Route
+            path="/developer"
+            element={
+              <ProtectedRoute>
+                <RoleGate allow={['admin', 'developer']}>
+                  <Developer />
+                </RoleGate>
+              </ProtectedRoute>
+            }
+          />
           <Route path="/ads" element={<AdsPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
