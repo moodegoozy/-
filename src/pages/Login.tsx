@@ -125,6 +125,9 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
         case 'admin':
           navigate('/admin/panel')
           break
+        case 'developer':
+          navigate('/developer')
+          break
         default:
           navigate('/')
       }

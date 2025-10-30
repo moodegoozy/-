@@ -1,9 +1,9 @@
 // src/pages/MenuPage.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { db } from '@/firebase'
 import { collection, getDocs, query, where, doc, getDoc } from 'firebase/firestore'
 import { useCart } from '@/hooks/useCart'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth'   // ✅ عشان نجيب الدور
 
 type Item = {
@@ -26,6 +26,7 @@ type Restaurant = {
 export const MenuPage: React.FC = () => {
   const [items, setItems] = useState<(Item & { restaurant?: Restaurant })[]>([])
   const [loading, setLoading] = useState(true)
+  const [searchParams] = useSearchParams()
   const {
     add,
     subtotal,
@@ -37,9 +38,17 @@ export const MenuPage: React.FC = () => {
   } = useCart()
   const { role } = useAuth()   // ✅ نجيب الدور
 
+  const selectedRestaurantId = useMemo(() => searchParams.get('restaurant') || undefined, [searchParams])
+
   useEffect(() => {
     (async () => {
-      const qy = query(collection(db, 'menuItems'), where('available', '==', true))
+      setLoading(true)
+      const constraints = [where('available', '==', true)]
+      if (selectedRestaurantId) {
+        constraints.push(where('ownerId', '==', selectedRestaurantId))
+      }
+
+      const qy = query(collection(db, 'menuItems'), ...constraints)
       const snap = await getDocs(qy)
       const itemsData: Item[] = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
 
@@ -57,7 +66,7 @@ export const MenuPage: React.FC = () => {
       setItems(enriched)
       setLoading(false)
     })()
-  }, [])
+  }, [selectedRestaurantId])
 
   const featuredItems = items.filter(it => it.featured)
   const spotlight = featuredItems.length > 0 ? featuredItems : items.slice(0, 4)
@@ -92,9 +101,14 @@ export const MenuPage: React.FC = () => {
 
   return (
     <div className="py-10">
-      <h1 className="text-3xl font-extrabold text-center mb-8 text-yellow-400">
+      <h1 className="text-3xl font-extrabold text-center mb-4 text-yellow-400">
         🍗 قائمة الأصناف
       </h1>
+      {selectedRestaurantId && (
+        <p className="text-center text-gray-200 mb-8">
+          يتم عرض أصناف المطعم المحدد فقط.
+        </p>
+      )}
 
       {spotlight.length > 0 && (
         <section className="mb-10">

@@ -59,7 +59,16 @@ export default function App() {
           <Route path="/admin/login" element={<AdminLogin />} />
           <Route path="/register" element={<Register />} />
           <Route path="/cart" element={<CartPage />} />
-          <Route path="/developer" element={<Developer />} />
+          <Route
+            path="/developer"
+            element={
+              <ProtectedRoute>
+                <RoleGate allow={['admin', 'developer']}>
+                  <Developer />
+                </RoleGate>
+              </ProtectedRoute>
+            }
+          />
           <Route path="/ads" element={<AdsPage />} />
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
