@@ -96,18 +96,18 @@ export const MenuPage: React.FC = () => {
     const loadItems = async () => {
       setLoading(true)
       try {
-        const constraints = [where('available', '==', true)]
-        if (selectedRestaurantId) {
-          constraints.push(where('ownerId', '==', selectedRestaurantId))
-        }
-
-        const qy = query(collection(db, 'menuItems'), ...constraints)
+        const baseCollection = collection(db, 'menuItems')
+        const qy = selectedRestaurantId
+          ? query(baseCollection, where('ownerId', '==', selectedRestaurantId))
+          : query(baseCollection, where('available', '==', true))
         const snap = await getDocs(qy)
         if (!active) return
-        const itemsData: Item[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as any),
-        }))
+        const itemsData: Item[] = snap.docs
+          .map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }))
+          .filter((item) => item.available ?? true)
         setItems(itemsData)
       } catch (error) {
         console.error('فشل في جلب أصناف القائمة', error)
