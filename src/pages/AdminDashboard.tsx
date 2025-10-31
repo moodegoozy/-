@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import {
   addDoc,
   collection,
   doc,
+  getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
+  where,
 } from 'firebase/firestore'
 
 import { useAuth } from '@/auth'
@@ -70,8 +72,6 @@ const tabs: Array<{ id: TabKey; label: string; description: string }> = [
     description: 'إحصاءات دورية واستبصارات تساعد في اتخاذ القرار.'
   }
 ]
-
-const ADMIN_ROLE = 'admin' as const
 
 const formatCurrency = (value: number) =>
   `${value.toLocaleString('ar-SA', { minimumFractionDigits: 2 })} ر.س`
@@ -159,22 +159,15 @@ const requestBadgeClass = (status: RestaurantRequest['status']) => {
 }
 
 export const AdminDashboard: React.FC = () => {
-  const { user, role, loading } = useAuth()
-  const isAuthorized = Boolean(user) && role === ADMIN_ROLE
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [orders, setOrders] = useState<NormalizedOrder[]>([])
   const [restaurants, setRestaurants] = useState<RestaurantRecord[]>([])
   const [requests, setRequests] = useState<RestaurantRequest[]>([])
   const [creatingRequest, setCreatingRequest] = useState(false)
   const [alert, setAlert] = useState<AlertState>(null)
-  const unauthorizedActionMessage = 'صلاحية الوصول غير كافية لتنفيذ هذا الإجراء.'
 
   useEffect(() => {
-    if (!isAuthorized) {
-      setOrders([])
-      return
-    }
-
     const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'))
     const unsubscribe = onSnapshot(ordersQuery, (snapshot) => {
       setOrders(
@@ -205,14 +198,9 @@ export const AdminDashboard: React.FC = () => {
     })
 
     return () => unsubscribe()
-  }, [isAuthorized])
+  }, [])
 
   useEffect(() => {
-    if (!isAuthorized) {
-      setRestaurants([])
-      return
-    }
-
     const restaurantsQuery = query(collection(db, 'restaurants'), orderBy('createdAt', 'desc'))
     const unsubscribe = onSnapshot(restaurantsQuery, (snapshot) => {
       setRestaurants(
@@ -231,14 +219,9 @@ export const AdminDashboard: React.FC = () => {
     })
 
     return () => unsubscribe()
-  }, [isAuthorized])
+  }, [])
 
   useEffect(() => {
-    if (!isAuthorized) {
-      setRequests([])
-      return
-    }
-
     const requestsQuery = query(collection(db, 'restaurantRequests'), orderBy('createdAt', 'desc'))
     const unsubscribe = onSnapshot(requestsQuery, (snapshot) => {
       setRequests(
@@ -258,7 +241,7 @@ export const AdminDashboard: React.FC = () => {
     })
 
     return () => unsubscribe()
-  }, [isAuthorized])
+  }, [])
 
   const metrics = useMemo(() => {
     const totals = orders.reduce(
@@ -306,11 +289,6 @@ export const AdminDashboard: React.FC = () => {
   }, [orders, requests])
 
   const handleRequestUpdate = async (requestId: string, status: RestaurantRequest['status']) => {
-    if (!isAuthorized) {
-      setAlert({ kind: 'error', message: unauthorizedActionMessage })
-      return
-    }
-
     try {
       await updateDoc(doc(db, 'restaurantRequests', requestId), {
         status,
@@ -323,19 +301,14 @@ export const AdminDashboard: React.FC = () => {
     }
   }
 
-  const handleCreateRequest = async (form: FormData): Promise<boolean> => {
-    if (!isAuthorized) {
-      setAlert({ kind: 'error', message: unauthorizedActionMessage })
-      return false
-    }
-
+  const handleCreateRequest = async (form: FormData) => {
     const name = String(form.get('name') ?? '').trim()
     const ownerName = String(form.get('ownerName') ?? '').trim()
     const notes = String(form.get('notes') ?? '').trim()
 
     if (!name) {
       setAlert({ kind: 'error', message: 'يرجى إدخال اسم المطعم.' })
-      return false
+      return
     }
 
     try {
@@ -348,11 +321,9 @@ export const AdminDashboard: React.FC = () => {
         createdAt: serverTimestamp(),
       })
       setAlert({ kind: 'success', message: 'تم إرسال طلب الانضمام، وسيتم مراجعته قريباً.' })
-      return true
     } catch (error) {
       console.error(error)
       setAlert({ kind: 'error', message: 'تعذر إرسال الطلب، يرجى المحاولة لاحقاً.' })
-      return false
     } finally {
       setCreatingRequest(false)
     }
@@ -360,13 +331,9 @@ export const AdminDashboard: React.FC = () => {
 
   const handleSubmitNewRequest = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const formElement = event.currentTarget
-    const form = new FormData(formElement)
-    void handleCreateRequest(form).then((success) => {
-      if (success) {
-        formElement.reset()
-      }
-    })
+    const form = new FormData(event.currentTarget)
+    event.currentTarget.reset()
+    handleCreateRequest(form)
   }
 
   useEffect(() => {
@@ -375,30 +342,10 @@ export const AdminDashboard: React.FC = () => {
     return () => window.clearTimeout(timeout)
   }, [alert])
 
-  if (loading) {
+  if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="space-y-3 text-center">
-          <p className="text-lg font-semibold">جارٍ التحقق من صلاحيات الحساب...</p>
-          <p className="text-sm text-slate-300">يرجى الانتظار لحظات قليلة.</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!isAuthorized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
-        <div className="w-full max-w-md space-y-4 rounded-3xl bg-white/5 p-10 text-center shadow-2xl">
-          <h2 className="text-2xl font-bold text-yellow-400">لا يوجد تصريح</h2>
-          <p className="text-sm text-slate-200">يجب تسجيل الدخول بحساب مشرفة للوصول إلى لوحة التحكم.</p>
-          <Link
-            to="/admin/login"
-            className="inline-flex items-center justify-center rounded-2xl bg-yellow-400 px-6 py-2 font-semibold text-slate-950 transition hover:bg-yellow-500"
-          >
-            العودة إلى تسجيل الدخول
-          </Link>
-        </div>
+        <p className="text-lg font-semibold">يجب تسجيل الدخول كمشرفة للوصول إلى هذه الصفحة.</p>
       </div>
     )
   }
@@ -409,7 +356,7 @@ export const AdminDashboard: React.FC = () => {
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-extrabold text-yellow-400">لوحة تحكم سفرة البيت</h1>
-            <p className="text-sm text-slate-200">مرحباً {user?.email ?? 'مشرفة'}! تابعي مؤشرات الأداء وطلبات الانضمام في مكان واحد.</p>
+            <p className="text-sm text-slate-200">مرحباً {user.email ?? 'مشرفة'}! تابعي مؤشرات الأداء وطلبات الانضمام في مكان واحد.</p>
           </div>
           <div className="rounded-2xl bg-white/5 px-4 py-2 text-xs text-slate-200">
             آخر تحديث: {new Date().toLocaleTimeString('ar-SA')}

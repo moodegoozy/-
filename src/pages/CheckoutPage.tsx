@@ -7,7 +7,16 @@ import { useNavigate } from 'react-router-dom'
 import { RoleGate } from '@/routes/RoleGate'
 
 export const CheckoutPage: React.FC = () => {
-  const { items, subtotal, clear } = useCart()
+  const {
+    items,
+    subtotal,
+    clear,
+    applicationFeePerItem,
+    applicationFeeTotal,
+    getItemTotalWithFees,
+    getUnitPriceWithFees,
+    totalWithFees,
+  } = useCart()
   const { user } = useAuth()
   const nav = useNavigate()
   const [address, setAddress] = useState('')
@@ -18,8 +27,9 @@ export const CheckoutPage: React.FC = () => {
   const deliveryFee = 7
   const commissionRate = 0.15
   const commissionAmount = +(subtotal * commissionRate).toFixed(2)
-  const totalBeforeDelivery = subtotal + commissionAmount
+  const totalBeforeDelivery = subtotal + commissionAmount + applicationFeeTotal
   const total = totalBeforeDelivery + deliveryFee
+  const totalItems = items.reduce((sum, item) => sum + item.qty, 0)
 
   // ✅ تحميل بيانات المطعم
   useEffect(() => {
@@ -93,6 +103,7 @@ export const CheckoutPage: React.FC = () => {
         id: i.id,
         name: i.name,
         price: i.price,
+        priceWithFee: getUnitPriceWithFees(i.price),
         qty: i.qty,
         ownerId: i.ownerId ?? restId,
       })),
@@ -102,6 +113,8 @@ export const CheckoutPage: React.FC = () => {
       commissionRate,
       commissionAmount,
       totalBeforeDelivery,
+      applicationFeePerItem,
+      applicationFeeTotal,
       restaurantPayout: subtotal,
       applicationShare: commissionAmount,
       status: 'pending',
@@ -125,9 +138,17 @@ export const CheckoutPage: React.FC = () => {
         {/* 🧾 تفاصيل الطلب */}
         <div className="border rounded-xl p-3 text-gray-800">
           {items.map(i => (
-            <div key={i.id} className="flex items-center justify-between py-2 border-b last:border-b-0">
-              <span className="text-sm">{i.name} × {i.qty}</span>
-              <span className="font-semibold">{(i.price * i.qty).toFixed(2)} ر.س</span>
+            <div key={i.id} className="flex flex-col gap-1 py-2 border-b last:border-b-0">
+              <div className="flex items-center justify-between text-sm">
+                <span>{i.name} × {i.qty}</span>
+                <span className="font-semibold">{getItemTotalWithFees(i).toFixed(2)} ر.س</span>
+              </div>
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span>لكل وجبة</span>
+                <span>
+                  {getUnitPriceWithFees(i.price).toFixed(2)} ر.س = {i.price.toFixed(2)} ر.س + {applicationFeePerItem.toFixed(2)} ر.س رسوم
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -168,6 +189,10 @@ export const CheckoutPage: React.FC = () => {
             <span>{subtotal.toFixed(2)} ر.س</span>
           </div>
           <div className="flex items-center justify-between text-sm">
+            <span>رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س × {totalItems})</span>
+            <span>{applicationFeeTotal.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
             <span>ضريبة التطبيق (15٪)</span>
             <span>{commissionAmount.toFixed(2)} ر.س</span>
           </div>
@@ -175,13 +200,18 @@ export const CheckoutPage: React.FC = () => {
             <span>رسوم التوصيل</span>
             <span>{deliveryFee.toFixed(2)} ر.س</span>
           </div>
+          <div className="flex items-center justify-between text-sm">
+            <span>مجموع الوجبات بعد رسوم التشغيل</span>
+            <span>{totalWithFees.toFixed(2)} ر.س</span>
+          </div>
           <div className="flex items-center justify-between font-bold text-lg mt-1 text-gray-900">
             <span>الإجمالي</span>
             <span>{total.toFixed(2)} ر.س</span>
           </div>
           <p className="text-[11px] text-gray-500 mt-2">
             يصل للمطعم <span className="font-semibold text-gray-700">{subtotal.toFixed(2)} ر.س</span>، وتُضاف ضريبة التطبيق آلياً
-            بقيمة <span className="font-semibold text-gray-700">{commissionAmount.toFixed(2)} ر.س</span> لحساب المنصة.
+            بقيمة <span className="font-semibold text-gray-700">{commissionAmount.toFixed(2)} ر.س</span>، بالإضافة إلى رسوم تشغيل
+            التطبيق <span className="font-semibold text-gray-700">{applicationFeeTotal.toFixed(2)} ر.س</span> لحساب المنصة.
           </p>
         </div>
 
