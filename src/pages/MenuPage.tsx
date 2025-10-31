@@ -161,6 +161,7 @@ export const MenuPage: React.FC = () => {
   const activeRestaurant = selectedRestaurantId
     ? restaurantsMap[selectedRestaurantId]
     : undefined
+  const selectedRestaurantName = activeRestaurant?.name
 
   const handleAdd = (item: Item) => {
     if (!item.ownerId) {
@@ -289,7 +290,22 @@ export const MenuPage: React.FC = () => {
       )}
 
       {groupedMenu.length === 0 && (
-        <div className="text-center text-gray-400">😔 لا توجد أصناف حالياً</div>
+        <div className="text-center text-gray-400 space-y-2">
+          <div>
+            😔{' '}
+            {selectedRestaurantId
+              ? `لا توجد أصناف متاحة حالياً${selectedRestaurantName ? ` لمطعم ${selectedRestaurantName}` : ''}.`
+              : 'لا توجد أصناف حالياً'}
+          </div>
+          {selectedRestaurantId && (
+            <Link
+              to="/menu"
+              className="inline-flex items-center justify-center gap-2 text-sm text-yellow-200 font-semibold underline underline-offset-4"
+            >
+              👈 الرجوع لجميع المطاعم
+            </Link>
+          )}
+        </div>
       )}
 
       {groupedMenu.map((section) => {
