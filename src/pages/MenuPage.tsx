@@ -56,6 +56,8 @@ export const MenuPage: React.FC = () => {
     [searchParams]
   )
 
+  const selectedRestaurantId = useMemo(() => searchParams.get('restaurant') || undefined, [searchParams])
+
   useEffect(() => {
     let active = true
     const loadRestaurants = async () => {
