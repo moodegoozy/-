@@ -1,551 +1,606 @@
-// src/pages/Developer.tsx
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  where,
+} from 'firebase/firestore'
 
-type LedgerEntry = {
-  id: number
-  title: string
-  amount: number
-  category: 'income' | 'expense'
-  note?: string
-}
+import { useAuth } from '@/auth'
+import { db } from '@/firebase'
+import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
+import { usePlatformSettings } from '@/context/PlatformSettingsContext'
 
-type Employee = {
-  id: number
+const managedCollections = ['users', 'restaurants', 'menuItems', 'orders', 'supervisors', 'restaurantRequests', 'reports']
+
+type Restaurant = {
+  id: string
   name: string
-  role: string
+  city?: string
+  supervisorId?: string
+  supervisorEmail?: string
+  status?: string
+}
+
+type Supervisor = {
+  id: string
+  name?: string
   email?: string
-  commission: number
-  active: boolean
 }
 
-type TaskReport = {
-  id: number
-  title: string
-  owner: string
-  status: 'مكتمل' | 'قيد التنفيذ' | 'متأخر'
-  progress: number
-  dueDate: string
+type Report = {
+  id: string
+  message: string
+  supervisorEmail?: string | null
+  status?: string
+  createdAt?: Date | null
 }
 
-type AdPlacement = {
-  id: number
-  title: string
-  type: 'صورة' | 'رابط' | 'فيديو'
-  asset: string
-  destination?: string
-  status: 'قيد المراجعة' | 'نشط' | 'مجدول'
+type RestaurantRequest = {
+  id: string
+  name: string
+  city?: string
+  location?: string
+  status?: string
+  supervisorEmail?: string | null
+  createdAt?: Date | null
 }
 
-const initialLedger: LedgerEntry[] = [
-  { id: 1, title: 'مبيعات التطبيق', amount: 18500, category: 'income', note: 'إجمالي الطلبات المكتملة' },
-  { id: 2, title: 'عمولة المتاجر', amount: 4200, category: 'income' },
-  { id: 3, title: 'رواتب الموظفات', amount: 6200, category: 'expense' },
-  { id: 4, title: 'استضافة المنصة', amount: 950, category: 'expense' },
-  { id: 5, title: 'حملات تسويقية', amount: 1800, category: 'expense', note: 'إعلانات ممولة لمدة أسبوعين' },
-]
-
-const initialEmployees: Employee[] = [
-  { id: 1, name: 'أمل الغامدي', role: 'إدارة عمليات', email: 'amal@example.com', commission: 12.5, active: true },
-  { id: 2, name: 'سارة الشهري', role: 'خدمة العملاء', email: 'sarah@example.com', commission: 8, active: true },
-  { id: 3, name: 'جود العتيبي', role: 'تسويق رقمي', email: 'jood@example.com', commission: 10, active: false },
-]
-
-const taskReports: TaskReport[] = [
-  { id: 1, title: 'إطلاق نظام الولاء', owner: 'سارة الشهري', status: 'قيد التنفيذ', progress: 65, dueDate: '25 أبريل 2024' },
-  { id: 2, title: 'تحديث قائمة المطاعم', owner: 'أمل الغامدي', status: 'مكتمل', progress: 100, dueDate: '15 أبريل 2024' },
-  { id: 3, title: 'حملة إعلانية لشهر رمضان', owner: 'جود العتيبي', status: 'متأخر', progress: 35, dueDate: '10 أبريل 2024' },
-]
-
-const initialAds: AdPlacement[] = [
-  {
-    id: 1,
-    title: 'بانر العروض الرمضانية',
-    type: 'صورة',
-    asset: 'https://images.unsplash.com/photo-1612874470034-62f8ac9e47c3?auto=format&fit=crop&w=600&q=80',
-    destination: 'https://example.com/ramadan-offers',
-    status: 'نشط',
-  },
-  {
-    id: 2,
-    title: 'إعلان مطعم الأسبوع',
-    type: 'فيديو',
-    asset: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-    destination: 'https://example.com/featured-restaurant',
-    status: 'مجدول',
-  },
-  {
-    id: 3,
-    title: 'رابط تسجيل الأسر المنتجة',
-    type: 'رابط',
-    asset: 'https://example.com/family-signup',
-    status: 'قيد المراجعة',
-  },
-]
-
-const explanationCards = [
-  {
-    title: 'الإدارة المالية',
-    description:
-      'توفر لك الأرقام الأساسية نظرة سريعة على أداء المنصة؛ من خلال مقارنة الدخل والمصروفات ومراقبة صافي الربح لمعرفة أين يجب تعزيز الاستثمار أو ضبط التكاليف.',
-    highlights: ['بطاقات ملونة تبين الدخل والمصروفات وصافي الربح', 'جدول تفصيلي لكل بند مع الملاحظات المرتبطة به'],
-  },
-  {
-    title: 'قسم الموظفات',
-    description:
-      'يمكنك إضافة موظفة جديدة وتحديث بيانات الفريق بسهولة، مع متابعة حالة التوظيف ونسبة العمولة المحققة لكل عضو من خلال شريط التقدم.',
-    highlights: ['نموذج تسجيل يضم الاسم، الوظيفة، البريد، ونسبة العمولة', 'بطاقات تعرض حالة كل موظفة ونسبة تحقيق الأهداف'],
-  },
-  {
-    title: 'تقارير المهام',
-    description:
-      'تعرض البطاقات حالة كل مهمة، والمسؤولة عنها، وتاريخ التسليم المتوقع، مع مؤشرات لونية لتوضيح مستوى التقدم ودرجة الأولوية.',
-    highlights: ['وسوم الحالة بالألوان تبين المهام المكتملة والمتأخرة', 'شريط تقدم مرئي يساعد على قراءة نسبة الإنجاز مباشرة'],
-  },
-]
-
-const currencyFormatter = new Intl.NumberFormat('ar-SA', {
-  style: 'currency',
-  currency: 'SAR',
-  maximumFractionDigits: 0,
-})
+const toDate = (value: unknown): Date | null => {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value === 'object' && value) {
+    const ts = value as { seconds?: number; toDate?: () => Date }
+    if (typeof ts.toDate === 'function') return ts.toDate()
+    if (typeof ts.seconds === 'number') return new Date(ts.seconds * 1000)
+  }
+  return null
+}
 
 export const Developer: React.FC = () => {
-  const [employees, setEmployees] = useState<Employee[]>(initialEmployees)
-  const [form, setForm] = useState({ name: '', role: '', email: '', commission: '' })
-  const [formError, setFormError] = useState<string | null>(null)
-  const [ads, setAds] = useState<AdPlacement[]>(initialAds)
-  const [adForm, setAdForm] = useState({
-    title: '',
-    type: 'صورة' as AdPlacement['type'],
-    asset: '',
-    destination: '',
-  })
-  const [adFormError, setAdFormError] = useState<string | null>(null)
+  const { user } = useAuth()
+  const { commissionRate, updateCommissionRate } = usePlatformSettings()
 
-  const { income, expense, net } = useMemo(() => {
-    const incomeTotal = initialLedger
-      .filter((entry) => entry.category === 'income')
-      .reduce((sum, entry) => sum + entry.amount, 0)
-    const expenseTotal = initialLedger
-      .filter((entry) => entry.category === 'expense')
-      .reduce((sum, entry) => sum + entry.amount, 0)
-    return {
-      income: incomeTotal,
-      expense: expenseTotal,
-      net: incomeTotal - expenseTotal,
+  const [hasAccess, setHasAccess] = useState<boolean>(() => !developerAccessCode)
+  const [accessCode, setAccessCode] = useState('')
+  const [accessError, setAccessError] = useState<string | null>(null)
+
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  const [supervisors, setSupervisors] = useState<Supervisor[]>([])
+  const [reports, setReports] = useState<Report[]>([])
+  const [requests, setRequests] = useState<RestaurantRequest[]>([])
+  const [usersByRole, setUsersByRole] = useState<Record<string, number>>({})
+  const [explorerCollection, setExplorerCollection] = useState(managedCollections[0])
+  const [explorerDocs, setExplorerDocs] = useState<Array<{ id: string; data: Record<string, unknown> }>>([])
+  const [explorerLoading, setExplorerLoading] = useState(false)
+
+  const [newRestaurantName, setNewRestaurantName] = useState('')
+  const [newRestaurantCity, setNewRestaurantCity] = useState('')
+  const [newRestaurantSupervisor, setNewRestaurantSupervisor] = useState('')
+  const [savingRestaurant, setSavingRestaurant] = useState(false)
+  const [savingRate, setSavingRate] = useState(false)
+
+  useEffect(() => {
+    if (!developerAccessCode) {
+      setHasAccess(true)
+      return
+    }
+    try {
+      if (window.sessionStorage.getItem(DEVELOPER_ACCESS_SESSION_KEY) === 'granted') {
+        setHasAccess(true)
+      }
+    } catch (error) {
+      console.warn('تعذّر قراءة جلسة المطور:', error)
     }
   }, [])
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target
-    setForm((prev) => ({ ...prev, [name]: value }))
-  }
+  const verifyAccess = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault()
+      if (!developerAccessCode) {
+        setHasAccess(true)
+        return
+      }
+      if (accessCode.trim() === developerAccessCode) {
+        try {
+          window.sessionStorage.setItem(DEVELOPER_ACCESS_SESSION_KEY, 'granted')
+        } catch (error) {
+          console.warn('تعذّر حفظ جلسة المطور:', error)
+        }
+        setHasAccess(true)
+        setAccessError(null)
+      } else {
+        setAccessError('الرمز المدخل غير صحيح.')
+      }
+    },
+    [accessCode],
+  )
 
-  const handleAddEmployee = (event: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (!hasAccess) return
+    const unsubscribe = onSnapshot(collection(db, 'restaurants'), (snapshot) => {
+      setRestaurants(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          return {
+            id: document.id,
+            name: String(data.name ?? 'مطعم'),
+            city: typeof data.city === 'string' ? data.city : undefined,
+            status: typeof data.status === 'string' ? data.status : undefined,
+            supervisorId: typeof data.supervisorId === 'string' ? data.supervisorId : undefined,
+            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
+          }
+        }),
+      )
+    })
+    return () => unsubscribe()
+  }, [hasAccess])
+
+  useEffect(() => {
+    if (!hasAccess) return
+    const unsubscribe = onSnapshot(collection(db, 'supervisors'), (snapshot) => {
+      setSupervisors(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          return {
+            id: document.id,
+            name: typeof data.name === 'string' ? data.name : undefined,
+            email: typeof data.email === 'string' ? data.email : undefined,
+          }
+        }),
+      )
+    })
+    return () => unsubscribe()
+  }, [hasAccess])
+
+  useEffect(() => {
+    if (!hasAccess) return
+    const reportsQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'))
+    const unsubscribe = onSnapshot(reportsQuery, (snapshot) => {
+      setReports(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          return {
+            id: document.id,
+            message: String(data.message ?? ''),
+            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
+            status: typeof data.status === 'string' ? data.status : 'pending',
+            createdAt: toDate(data.createdAt),
+          }
+        }),
+      )
+    })
+    return () => unsubscribe()
+  }, [hasAccess])
+
+  useEffect(() => {
+    if (!hasAccess) return
+    const requestQuery = query(collection(db, 'restaurantRequests'), orderBy('createdAt', 'desc'))
+    const unsubscribe = onSnapshot(requestQuery, (snapshot) => {
+      setRequests(
+        snapshot.docs.map((document) => {
+          const data = document.data() as Record<string, unknown>
+          return {
+            id: document.id,
+            name: String(data.name ?? 'طلب جديد'),
+            city: typeof data.city === 'string' ? data.city : undefined,
+            location: typeof data.location === 'string' ? data.location : undefined,
+            status: typeof data.status === 'string' ? data.status : 'pending',
+            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
+            createdAt: toDate(data.createdAt),
+          }
+        }),
+      )
+    })
+    return () => unsubscribe()
+  }, [hasAccess])
+
+  useEffect(() => {
+    if (!hasAccess) return
+    void getDocs(collection(db, 'users')).then((snapshot) => {
+      const counts: Record<string, number> = {}
+      snapshot.forEach((document) => {
+        const role = String((document.data() as Record<string, unknown>).role ?? 'unknown')
+        counts[role] = (counts[role] ?? 0) + 1
+      })
+      setUsersByRole(counts)
+    })
+  }, [hasAccess])
+
+  const refreshExplorer = useCallback(async () => {
+    if (!explorerCollection) return
+    setExplorerLoading(true)
+    try {
+      const snapshot = await getDocs(collection(db, explorerCollection))
+      setExplorerDocs(
+        snapshot.docs.slice(0, 10).map((document) => ({
+          id: document.id,
+          data: document.data() as Record<string, unknown>,
+        })),
+      )
+    } catch (error) {
+      console.error('فشل في تحميل بيانات المستكشف:', error)
+      setExplorerDocs([])
+    } finally {
+      setExplorerLoading(false)
+    }
+  }, [explorerCollection])
+
+  useEffect(() => {
+    if (hasAccess) {
+      void refreshExplorer()
+    }
+  }, [hasAccess, explorerCollection, refreshExplorer])
+
+  const handleCreateRestaurant = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const trimmedName = form.name.trim()
-    const trimmedRole = form.role.trim()
-    const trimmedEmail = form.email.trim()
-    const commissionValue = Number(form.commission)
-
-    if (!trimmedName || !trimmedRole || Number.isNaN(commissionValue)) {
-      setFormError('الرجاء تعبئة الاسم، الوظيفة، ونسبة العمولة بشكل صحيح.')
-      return
+    if (!newRestaurantName.trim()) return
+    setSavingRestaurant(true)
+    try {
+      const payload: Record<string, unknown> = {
+        name: newRestaurantName.trim(),
+        city: newRestaurantCity.trim() || null,
+        status: 'active',
+        createdAt: serverTimestamp(),
+      }
+      if (newRestaurantSupervisor) {
+        payload.supervisorId = newRestaurantSupervisor
+        const supervisor = supervisors.find((s) => s.id === newRestaurantSupervisor)
+        payload.supervisorEmail = supervisor?.email ?? null
+      }
+      await addDoc(collection(db, 'restaurants'), payload)
+      setNewRestaurantName('')
+      setNewRestaurantCity('')
+      setNewRestaurantSupervisor('')
+    } catch (error) {
+      console.error('فشل في إنشاء المطعم:', error)
+      alert('تعذر إنشاء المطعم، يرجى المحاولة مرة أخرى.')
+    } finally {
+      setSavingRestaurant(false)
     }
-
-    if (commissionValue < 0 || commissionValue > 100) {
-      setFormError('نسبة العمولة يجب أن تكون بين 0% و 100%.')
-      return
-    }
-
-    const newEmployee: Employee = {
-      id: Date.now(),
-      name: trimmedName,
-      role: trimmedRole,
-      email: trimmedEmail || undefined,
-      commission: commissionValue,
-      active: true,
-    }
-
-    setEmployees((prev) => [newEmployee, ...prev])
-    setForm({ name: '', role: '', email: '', commission: '' })
-    setFormError(null)
   }
 
-  const handleAdInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target
-    setAdForm(prev => ({ ...prev, [name]: value }))
+  const handleDeleteRestaurant = async (id: string) => {
+    if (!confirm('هل تريد حذف هذا المطعم مع جميع بياناته؟')) return
+    try {
+      await deleteDoc(doc(db, 'restaurants', id))
+    } catch (error) {
+      console.error('فشل في حذف المطعم:', error)
+      alert('تعذر حذف المطعم حالياً.')
+    }
   }
 
-  const handleAddAd = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleAssignSupervisor = async (restaurantId: string, supervisorId: string) => {
+    try {
+      const supervisor = supervisors.find((s) => s.id === supervisorId)
+      await updateDoc(doc(db, 'restaurants', restaurantId), {
+        supervisorId,
+        supervisorEmail: supervisor?.email ?? null,
+        updatedAt: serverTimestamp(),
+      })
+      if (supervisor) {
+        await setDoc(
+          doc(db, 'supervisors', supervisorId),
+          {
+            email: supervisor.email ?? null,
+            name: supervisor.name ?? null,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
+    } catch (error) {
+      console.error('فشل في ربط المطعم بالمشرف:', error)
+      alert('تعذر تحديث المشرف للمطعم.')
+    }
+  }
+
+  const handleResolveReport = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'reports', id), {
+        status: 'resolved',
+        resolvedAt: serverTimestamp(),
+      })
+    } catch (error) {
+      console.error('فشل في تحديث التقرير:', error)
+      alert('تعذر تحديث حالة التقرير.')
+    }
+  }
+
+  const handleRequestStatus = async (request: RestaurantRequest, action: 'approve' | 'archive') => {
+    try {
+      if (action === 'approve') {
+        await addDoc(collection(db, 'restaurants'), {
+          name: request.name,
+          city: request.city ?? null,
+          status: 'pending-setup',
+          createdAt: serverTimestamp(),
+        })
+      }
+      await updateDoc(doc(db, 'restaurantRequests', request.id), {
+        status: action === 'approve' ? 'completed' : 'archived',
+        updatedAt: serverTimestamp(),
+      })
+    } catch (error) {
+      console.error('فشل في تحديث طلب المطعم:', error)
+      alert('تعذر تحديث حالة الطلب.')
+    }
+  }
+
+  const saveCommissionRate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-
-    const trimmedTitle = adForm.title.trim()
-    const trimmedAsset = adForm.asset.trim()
-    const trimmedDestination = adForm.destination.trim()
-
-    if (!trimmedTitle || !trimmedAsset) {
-      setAdFormError('الرجاء إدخال عنوان واضح ورابط الوسائط أو الصفحة.')
-      return
+    setSavingRate(true)
+    try {
+      const formData = new FormData(event.currentTarget)
+      const value = Number(formData.get('commission'))
+      await updateCommissionRate(value)
+    } catch (error) {
+      console.error('فشل في تحديث نسبة التطبيق:', error)
+      alert('تعذر حفظ النسبة الجديدة.')
+    } finally {
+      setSavingRate(false)
     }
+  }
 
-    if (adForm.type === 'رابط' && !trimmedDestination) {
-      setAdFormError('روابط الحملات تحتاج إلى تحديد الوجهة التي سيتجه لها المستخدم.')
-      return
-    }
+  const stats = useMemo(() => ({
+    restaurants: restaurants.length,
+    supervisors: supervisors.length,
+    reports: reports.length,
+  }), [restaurants.length, supervisors.length, reports.length])
 
-    const newAd: AdPlacement = {
-      id: Date.now(),
-      title: trimmedTitle,
-      type: adForm.type,
-      asset: trimmedAsset,
-      destination: trimmedDestination || undefined,
-      status: 'قيد المراجعة',
-    }
-
-    setAds(prev => [newAd, ...prev])
-    setAdForm({ title: '', type: adForm.type, asset: '', destination: '' })
-    setAdFormError(null)
+  if (!hasAccess) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center gap-4 rounded-3xl bg-white p-8 text-slate-900 shadow-xl">
+        <h1 className="text-center text-xl font-bold text-slate-900">الوصول إلى لوحة المطور</h1>
+        <p className="text-sm text-slate-600 text-center">أدخل الرمز السري المؤقت للوصول إلى أدوات التطوير.</p>
+        {accessError && <div className="rounded-xl bg-rose-100 px-4 py-2 text-center text-sm text-rose-600">{accessError}</div>}
+        <form onSubmit={verifyAccess} className="space-y-3 text-right">
+          <input
+            type="password"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+            placeholder="الرمز السري"
+            value={accessCode}
+            onChange={(event) => setAccessCode(event.target.value)}
+          />
+          <button type="submit" className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white">
+            متابعة
+          </button>
+        </form>
+      </div>
+    )
   }
 
   return (
-    <section className="space-y-10">
-      <header className="rounded-2xl bg-gradient-to-r from-[#1e293b] via-[#334155] to-[#1e293b] px-8 py-10 text-white shadow-xl">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-slate-300">لوحة المطور</p>
-            <h1 className="text-3xl font-bold md:text-4xl">إدارة المنصة والعمليات</h1>
-          </div>
-          <div className="text-right text-sm text-slate-200">
-            <p>المطور المسؤول: مريم الكناني</p>
-            <p>📧 memwalknany976@gmail.com</p>
-            <p>📱 0555047703</p>
-          </div>
-        </div>
-        <p className="mt-6 max-w-3xl text-sm text-slate-200">
-          توفر هذه اللوحة نظرة شاملة على الوضع المالي، حالة الموظفات، والتقدم في المهام التشغيلية لتسهيل متابعة عمل المنصة بشكل يومي.
+    <div className="space-y-8 text-slate-900">
+      <header className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold">لوحة المطور</h1>
+        <p className="text-sm text-slate-600">
+          إدارة المطاعم والمشرفين والمستخدمين، التحكم بنسبة التطبيق، ومعالجة التقارير الواردة من المشرفين.
         </p>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        {explanationCards.map((card) => (
-          <article key={card.title} className="flex flex-col rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-md backdrop-blur">
-            <h2 className="text-lg font-semibold text-slate-900">{card.title}</h2>
-            <p className="mt-3 text-sm leading-relaxed text-slate-600">{card.description}</p>
-            <ul className="mt-4 space-y-2 text-sm text-slate-500">
-              {card.highlights.map((highlight) => (
-                <li key={highlight} className="flex items-start gap-2">
-                  <span className="mt-1 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-                  <span>{highlight}</span>
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))}
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl bg-white p-4 shadow">
+          <div className="text-xs text-slate-500">عدد المطاعم</div>
+          <div className="text-2xl font-semibold">{stats.restaurants}</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow">
+          <div className="text-xs text-slate-500">عدد المشرفين</div>
+          <div className="text-2xl font-semibold">{stats.supervisors}</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow">
+          <div className="text-xs text-slate-500">عدد التقارير المفتوحة</div>
+          <div className="text-2xl font-semibold">{reports.filter((report) => report.status !== 'resolved').length}</div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 shadow">
+          <div className="text-xs text-slate-500">المستخدمون بحسب الدور</div>
+          <div className="text-xs text-slate-600">
+            {Object.entries(usersByRole).map(([role, count]) => (
+              <div key={role}>{role}: {count}</div>
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="rounded-2xl bg-white/80 p-6 shadow-lg backdrop-blur">
-        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-900">نظام إدارة الإعلانات</h2>
-            <p className="text-sm text-slate-500">نظّم إعلانات التطبيق حسب النوع وحدّد الروابط أو الوسائط المرتبطة</p>
-          </div>
-          <span className="rounded-full bg-primary/10 px-4 py-1 text-xs font-medium text-primary">
-            {ads.filter(ad => ad.status === 'نشط').length} إعلان نشط الآن
-          </span>
-        </div>
-
-        <form onSubmit={handleAddAd} className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-5">
+      <section className="grid gap-6 lg:grid-cols-2">
+        <form onSubmit={handleCreateRestaurant} className="space-y-3 rounded-2xl bg-white p-5 shadow">
+          <h2 className="text-lg font-semibold text-slate-900">➕ إضافة مطعم</h2>
           <input
-            name="title"
-            value={adForm.title}
-            onChange={handleAdInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder="عنوان الإعلان"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+            placeholder="اسم المطعم"
+            value={newRestaurantName}
+            onChange={(event) => setNewRestaurantName(event.target.value)}
+            required
+            disabled={savingRestaurant}
+          />
+          <input
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+            placeholder="المدينة (اختياري)"
+            value={newRestaurantCity}
+            onChange={(event) => setNewRestaurantCity(event.target.value)}
+            disabled={savingRestaurant}
           />
           <select
-            name="type"
-            value={adForm.type}
-            onChange={handleAdInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
+            value={newRestaurantSupervisor}
+            onChange={(event) => setNewRestaurantSupervisor(event.target.value)}
+            disabled={savingRestaurant}
           >
-            <option value="صورة">إعلان صورة</option>
-            <option value="رابط">تنبيه رابط</option>
-            <option value="فيديو">مقطع فيديو</option>
+            <option value="">اختيار مشرف (اختياري)</option>
+            {supervisors.map((supervisor) => (
+              <option key={supervisor.id} value={supervisor.id}>
+                {supervisor.name ?? supervisor.email ?? supervisor.id}
+              </option>
+            ))}
           </select>
+          <button
+            type="submit"
+            disabled={savingRestaurant}
+            className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {savingRestaurant ? 'جارٍ الحفظ...' : 'حفظ المطعم'}
+          </button>
+        </form>
+
+        <form onSubmit={saveCommissionRate} className="space-y-3 rounded-2xl bg-white p-5 shadow">
+          <h2 className="text-lg font-semibold text-slate-900">⚙️ إعداد نسبة التطبيق</h2>
+          <p className="text-sm text-slate-600">النسبة الحالية {commissionRate * 100}%</p>
           <input
-            name="asset"
-            value={adForm.asset}
-            onChange={handleAdInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder={adForm.type === 'فيديو' ? 'رابط الفيديو أو البث' : 'رابط الصورة أو المحتوى'}
-          />
-          <input
-            name="destination"
-            value={adForm.destination}
-            onChange={handleAdInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder="صفحة التوجيه (اختياري)"
+            name="commission"
+            type="number"
+            min={0}
+            max={1}
+            step={0.01}
+            defaultValue={commissionRate}
+            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
           />
           <button
             type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+            disabled={savingRate}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            إضافة إعلان
+            {savingRate ? 'جارٍ التحديث...' : 'تحديث النسبة'}
           </button>
-          {adFormError && (
-            <p className="md:col-span-5 text-sm font-medium text-rose-600">{adFormError}</p>
-          )}
         </form>
+      </section>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          {ads.map(ad => (
-            <article
-              key={ad.id}
-              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-primary/40 hover:shadow"
-            >
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">{ad.title}</h3>
-                  <p className="text-xs text-slate-500">نوع الإعلان: {ad.type}</p>
-                  {ad.destination && (
-                    <p className="mt-1 text-xs text-primary break-all">
-                      <span className="font-medium text-slate-600">وجهة الإعلان:</span> {ad.destination}
-                    </p>
-                  )}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">🍽️ إدارة المطاعم</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {restaurants.map((restaurant) => (
+            <div key={restaurant.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">{restaurant.name}</div>
+                <div className="text-xs text-slate-500">
+                  {restaurant.city ? `📍 ${restaurant.city}` : 'بدون تحديد مدينة'}
                 </div>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    ad.status === 'نشط'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : ad.status === 'مجدول'
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}
-                >
-                  {ad.status}
-                </span>
+                <div className="text-xs text-slate-500">
+                  المشرف الحالي: {restaurant.supervisorEmail ?? restaurant.supervisorId ?? 'غير مرتبط'}
+                </div>
               </div>
-              <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4 text-xs text-slate-500">
-                <p className="mb-2 font-semibold text-slate-600">معاينة الرابط أو الوسائط:</p>
-                <a href={ad.asset} target="_blank" rel="noreferrer" className="break-all text-primary underline-offset-2 hover:underline">
-                  {ad.asset}
-                </a>
-                <p className="mt-3 text-[11px] text-slate-400">تأكد من رفع المحتوى في مكتبة موثوقة أو منصة فيديو قبل التفعيل.</p>
-              </div>
-            </article>
+              <select
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                value={restaurant.supervisorId ?? ''}
+                onChange={(event) => handleAssignSupervisor(restaurant.id, event.target.value)}
+              >
+                <option value="">اختر مشرفاً</option>
+                {supervisors.map((supervisor) => (
+                  <option key={supervisor.id} value={supervisor.id}>
+                    {supervisor.name ?? supervisor.email ?? supervisor.id}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => handleDeleteRestaurant(restaurant.id)}
+                className="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-600"
+              >
+                حذف المطعم
+              </button>
+            </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white/80 p-6 shadow-lg backdrop-blur">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold text-slate-900">الإدارة المالية</h2>
-          <span className="rounded-full bg-emerald-100 px-4 py-1 text-sm font-medium text-emerald-700">
-            آخر تحديث: اليوم
-          </span>
-        </div>
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-5">
-            <p className="text-sm text-emerald-700">إجمالي الدخل</p>
-            <p className="mt-3 text-3xl font-bold text-emerald-900">{currencyFormatter.format(income)}</p>
-            <p className="mt-2 text-xs text-emerald-800/80">يشمل المبيعات، عمولات المتاجر، وخدمات إضافية</p>
-          </div>
-          <div className="rounded-xl border border-rose-100 bg-rose-50/60 p-5">
-            <p className="text-sm text-rose-700">إجمالي المصروفات</p>
-            <p className="mt-3 text-3xl font-bold text-rose-900">{currencyFormatter.format(expense)}</p>
-            <p className="mt-2 text-xs text-rose-800/80">رواتب، استضافة، وحملات تسويقية</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-sm text-slate-700">صافي الربح</p>
-            <p className={`mt-3 text-3xl font-bold ${net >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>
-              {currencyFormatter.format(net)}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">متابعة التدفقات المالية لتحديد أولويات الاستثمار</p>
-          </div>
-        </div>
-
-        <div className="mt-8 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-right">
-            <thead className="bg-slate-100 text-slate-600">
-              <tr>
-                <th className="px-4 py-3 text-sm font-semibold">البند</th>
-                <th className="px-4 py-3 text-sm font-semibold">النوع</th>
-                <th className="px-4 py-3 text-sm font-semibold">المبلغ</th>
-                <th className="px-4 py-3 text-sm font-semibold">ملاحظات</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white text-slate-700">
-              {initialLedger.map((entry) => (
-                <tr key={entry.id} className="transition hover:bg-slate-50">
-                  <td className="px-4 py-3 text-sm font-medium">{entry.title}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        entry.category === 'income'
-                          ? 'bg-emerald-100 text-emerald-700'
-                          : 'bg-rose-100 text-rose-700'
-                      }`}
-                    >
-                      {entry.category === 'income' ? 'دخل' : 'مصروف'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">
-                    {currencyFormatter.format(entry.amount)}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{entry.note ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="rounded-2xl bg-white/80 p-6 shadow-lg backdrop-blur">
-        <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-center">
-          <h2 className="text-2xl font-semibold text-slate-900">قسم الموظفات</h2>
-          <p className="text-sm text-slate-500">سجل وحدث بيانات الفريق، وتابع نسب العمولات لكل موظفة</p>
-        </div>
-
-        <form onSubmit={handleAddEmployee} className="grid gap-4 rounded-xl border border-slate-200 bg-slate-50 p-5 md:grid-cols-5">
-          <input
-            name="name"
-            value={form.name}
-            onChange={handleInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder="اسم الموظفة"
-          />
-          <input
-            name="role"
-            value={form.role}
-            onChange={handleInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder="المسمى الوظيفي"
-          />
-          <input
-            name="email"
-            value={form.email}
-            onChange={handleInputChange}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-            placeholder="البريد الإلكتروني (اختياري)"
-            type="email"
-          />
-          <div className="flex items-center gap-2">
-            <input
-              name="commission"
-              value={form.commission}
-              onChange={handleInputChange}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
-              placeholder="نسبة العمولة %"
-              type="number"
-              step="0.1"
-              min="0"
-              max="100"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
-          >
-            إضافة موظفة
-          </button>
-          {formError && (
-            <p className="md:col-span-5 text-sm font-medium text-rose-600">{formError}</p>
-          )}
-        </form>
-
-        <div className="mt-6 grid gap-4">
-          {employees.map((employee) => (
-            <div
-              key={employee.id}
-              className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-primary/40 hover:shadow"
-            >
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-slate-900">{employee.name}</h3>
-                  <p className="text-sm text-slate-500">{employee.role}</p>
-                  {employee.email && <p className="text-xs text-slate-400">{employee.email}</p>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      employee.active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
-                    }`}
-                  >
-                    {employee.active ? 'على رأس العمل' : 'موقفة مؤقتًا'}
-                  </span>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500">نسبة العمولة</p>
-                    <p className="text-lg font-semibold text-primary">{employee.commission}%</p>
-                  </div>
-                </div>
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">📨 طلبات المشرفين</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {requests.map((request) => (
+            <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">{request.name}</div>
+                {request.city && <div className="text-xs text-slate-500">📍 {request.city}</div>}
+                {request.location && <div className="text-xs text-slate-500">📌 {request.location}</div>}
+                <div className="text-xs text-slate-500">الحالة: {request.status}</div>
+                {request.supervisorEmail && (
+                  <div className="text-xs text-slate-500">من: {request.supervisorEmail}</div>
+                )}
               </div>
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>تحقيق الأهداف</span>
-                  <span>{Math.min(100, Math.round(employee.commission * 4))}%</span>
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                  <div
-                    className="h-2 rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.min(100, Math.round(employee.commission * 4))}%` }}
-                  />
-                </div>
+              <div className="flex gap-2 text-xs">
+                <button
+                  onClick={() => handleRequestStatus(request, 'approve')}
+                  className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 font-semibold text-white hover:bg-emerald-600"
+                >
+                  إنشاء مطعم
+                </button>
+                <button
+                  onClick={() => handleRequestStatus(request, 'archive')}
+                  className="flex-1 rounded-xl bg-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-300"
+                >
+                  أرشفة
+                </button>
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="rounded-2xl bg-white/80 p-6 shadow-lg backdrop-blur">
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-2xl font-semibold text-slate-900">تقارير المهام</h2>
-          <span className="text-sm text-slate-400">3 مهام نشطة هذا الأسبوع</span>
-        </div>
-        <div className="grid gap-5 md:grid-cols-3">
-          {taskReports.map((task) => (
-            <article
-              key={task.id}
-              className="flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-primary/40 hover:shadow"
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">{task.title}</h3>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    task.status === 'مكتمل'
-                      ? 'bg-emerald-100 text-emerald-700'
-                      : task.status === 'قيد التنفيذ'
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-rose-100 text-rose-700'
-                  }`}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">📝 تقارير المشرفين</h2>
+        <div className="grid gap-3 md:grid-cols-2">
+          {reports.map((report) => (
+            <div key={report.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
+              <div className="text-sm text-slate-800">{report.message}</div>
+              <div className="text-xs text-slate-500">
+                {report.supervisorEmail && <div>من: {report.supervisorEmail}</div>}
+                <div>الحالة: {report.status}</div>
+                <div>{report.createdAt ? report.createdAt.toLocaleString('ar-SA') : '—'}</div>
+              </div>
+              {report.status !== 'resolved' && (
+                <button
+                  onClick={() => handleResolveReport(report.id)}
+                  className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600"
                 >
-                  {task.status}
-                </span>
-              </div>
-              <p className="mt-2 text-sm text-slate-500">المسؤولة: {task.owner}</p>
-              <p className="mt-1 text-xs text-slate-400">موعد التسليم: {task.dueDate}</p>
-              <div className="mt-4">
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>التقدم</span>
-                  <span>{task.progress}%</span>
-                </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-slate-100">
-                  <div
-                    className={`h-2 rounded-full ${
-                      task.status === 'مكتمل'
-                        ? 'bg-emerald-500'
-                        : task.status === 'قيد التنفيذ'
-                        ? 'bg-amber-500'
-                        : 'bg-rose-500'
-                    }`}
-                    style={{ width: `${task.progress}%` }}
-                  />
-                </div>
-              </div>
-            </article>
+                  تمييز كمكتمل
+                </button>
+              )}
+            </div>
           ))}
         </div>
       </section>
-    </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-slate-900">🗂️ مستكشف البيانات</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {managedCollections.map((name) => (
+            <button
+              key={name}
+              onClick={() => setExplorerCollection(name)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                explorerCollection === name ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+          <button
+            onClick={refreshExplorer}
+            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+          >
+            تحديث
+          </button>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow text-xs text-slate-700">
+          {explorerLoading ? (
+            <div>جارِ التحميل...</div>
+          ) : explorerDocs.length === 0 ? (
+            <div>لا توجد مستندات في هذه المجموعة.</div>
+          ) : (
+            <pre className="whitespace-pre-wrap break-words text-[11px]">
+              {JSON.stringify(explorerDocs, null, 2)}
+            </pre>
+          )}
+        </div>
+      </section>
+    </div>
   )
 }
+
+export default Developer

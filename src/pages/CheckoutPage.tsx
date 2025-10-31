@@ -11,11 +11,12 @@ export const CheckoutPage: React.FC = () => {
     items,
     subtotal,
     clear,
-    applicationFeePerItem,
     applicationFeeTotal,
     getItemTotalWithFees,
-    getUnitPriceWithFees,
+    getBasePrice,
+    getMarkupPerUnit,
     totalWithFees,
+    commissionRate,
   } = useCart()
   const { user } = useAuth()
   const nav = useNavigate()
@@ -25,13 +26,12 @@ export const CheckoutPage: React.FC = () => {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null)
 
   const deliveryFee = 7
-  const commissionRate = 0.15
-  const commissionAmount = +(subtotal * commissionRate).toFixed(2)
-  const totalBeforeDelivery = subtotal + commissionAmount + applicationFeeTotal
+  const commissionAmount = applicationFeeTotal
+  const supervisorShare = Number((commissionAmount / 2).toFixed(2))
+  const platformShare = Number((commissionAmount - supervisorShare).toFixed(2))
+  const totalBeforeDelivery = totalWithFees
   const total = totalBeforeDelivery + deliveryFee
-  const totalItems = items.reduce((sum, item) => sum + item.qty, 0)
 
-  // ✅ تحميل بيانات المطعم
   useEffect(() => {
     const loadRestaurant = async () => {
       if (items.length === 0) return
@@ -56,31 +56,42 @@ export const CheckoutPage: React.FC = () => {
       const rData = rSnap.exists() ? (rSnap.data() as any) : null
       setRestaurant({ id: ownerId, name: rData?.name || 'مطعم' })
     }
-    loadRestaurant()
+
+    void loadRestaurant()
   }, [items])
 
-  // ✅ تحديد موقعي عبر GPS
   const getMyLocation = () => {
-    if (!navigator.geolocation) return alert('المتصفح لا يدعم تحديد الموقع')
+    if (!navigator.geolocation) {
+      alert('المتصفح لا يدعم تحديد الموقع')
+      return
+    }
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        console.log('📍 موقعك الحالي:', pos.coords)
         setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
       },
       (err) => {
         console.error('خطأ في تحديد الموقع:', err)
         alert('تعذر تحديد الموقع. تأكد من منح إذن الوصول للموقع.')
       },
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true },
     )
   }
 
-  // ✅ إرسال الطلب
   const placeOrder = async () => {
     if (!user) return
-    if (items.length === 0) return alert('السلة فارغة')
-    if (!address) return alert('أدخل العنوان')
-    if (!location) return alert('حدّد موقعك على الخريطة')
+    if (items.length === 0) {
+      alert('السلة فارغة')
+      return
+    }
+    if (!address.trim()) {
+      alert('أدخل العنوان')
+      return
+    }
+    if (!location) {
+      alert('حدّد موقعك على الخريطة')
+      return
+    }
 
     let restId = restaurant?.id
     if (!restId && items[0]?.id) {
@@ -99,13 +110,14 @@ export const CheckoutPage: React.FC = () => {
       customerId: user.uid,
       restaurantId: restId,
       restaurantName: restaurant?.name || 'مطعم',
-      items: items.map(i => ({
-        id: i.id,
-        name: i.name,
-        price: i.price,
-        priceWithFee: getUnitPriceWithFees(i.price),
-        qty: i.qty,
-        ownerId: i.ownerId ?? restId,
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        basePrice: Number(getBasePrice(item).toFixed(2)),
+        priceWithFee: Number(item.price.toFixed(2)),
+        markupPerUnit: Number(getMarkupPerUnit(item).toFixed(2)),
+        qty: item.qty,
+        ownerId: item.ownerId ?? restId,
       })),
       subtotal,
       deliveryFee,
@@ -113,10 +125,10 @@ export const CheckoutPage: React.FC = () => {
       commissionRate,
       commissionAmount,
       totalBeforeDelivery,
-      applicationFeePerItem,
       applicationFeeTotal,
       restaurantPayout: subtotal,
-      applicationShare: commissionAmount,
+      supervisorShare,
+      platformShare,
       status: 'pending',
       address,
       location,
@@ -132,96 +144,105 @@ export const CheckoutPage: React.FC = () => {
 
   return (
     <RoleGate allow={['customer']}>
-      <div className="max-w-xl mx-auto bg-white rounded-2xl shadow p-6 text-gray-900">
-        <h1 className="text-xl font-bold mb-4">إتمام الطلب</h1>
+      <div className="max-w-xl mx-auto bg-white rounded-2xl shadow p-6 text-gray-900 space-y-3">
+        <header className="space-y-1">
+          <h1 className="text-xl font-bold">إتمام الطلب</h1>
+          {restaurant && (
+            <p className="text-sm text-gray-600">
+              سيتم تنفيذ الطلب عبر مطعم <span className="font-semibold text-gray-800">{restaurant.name}</span>
+            </p>
+          )}
+        </header>
 
-        {/* 🧾 تفاصيل الطلب */}
-        <div className="border rounded-xl p-3 text-gray-800">
-          {items.map(i => (
-            <div key={i.id} className="flex flex-col gap-1 py-2 border-b last:border-b-0">
+        <section className="border rounded-xl p-3 text-gray-800 space-y-2">
+          <h2 className="text-sm font-semibold text-gray-700">🧾 تفاصيل الطلب</h2>
+          {items.map((item) => (
+            <div key={item.id} className="flex flex-col gap-1 py-2 border-b last:border-none">
               <div className="flex items-center justify-between text-sm">
-                <span>{i.name} × {i.qty}</span>
-                <span className="font-semibold">{getItemTotalWithFees(i).toFixed(2)} ر.س</span>
+                <span>{item.name} × {item.qty}</span>
+                <span className="font-semibold">{getItemTotalWithFees(item).toFixed(2)} ر.س</span>
               </div>
               <div className="flex items-center justify-between text-[11px] text-gray-500">
-                <span>لكل وجبة</span>
+                <span>تفاصيل التسعير</span>
                 <span>
-                  {getUnitPriceWithFees(i.price).toFixed(2)} ر.س = {i.price.toFixed(2)} ر.س + {applicationFeePerItem.toFixed(2)} ر.س رسوم
+                  {item.price.toFixed(2)} ر.س = {getBasePrice(item).toFixed(2)} ر.س + {getMarkupPerUnit(item).toFixed(2)} ر.س نسبة التطبيق
                 </span>
               </div>
             </div>
           ))}
-        </div>
+        </section>
 
-        {/* 🏠 العنوان */}
         <input
-          className="w-full border rounded-xl p-3 text-gray-900 placeholder-gray-500 mt-3"
+          className="w-full border rounded-xl p-3 text-gray-900 placeholder-gray-500"
           placeholder="العنوان التفصيلي"
           value={address}
-          onChange={e => setAddress(e.target.value)}
+          onChange={(event) => setAddress(event.target.value)}
         />
 
-        {/* 📍 تحديد الموقع */}
-        <button
-          onClick={getMyLocation}
-          className="w-full mt-3 rounded-xl p-3 bg-blue-600 text-white font-semibold hover:bg-blue-700"
-        >
-          📍 تحديد موقعي الحالي
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={getMyLocation}
+            className="w-full rounded-xl p-3 bg-blue-600 text-white font-semibold hover:bg-blue-700"
+            type="button"
+          >
+            📍 تحديد موقعي الحالي
+          </button>
 
-        {/* 🗺️ الخريطة */}
-        {location && (
-          <iframe
-            title="خريطة الموقع"
-            width="100%"
-            height="250"
-            style={{ borderRadius: '12px', marginTop: '10px' }}
-            loading="lazy"
-            allowFullScreen
-            src={`https://maps.google.com/maps?hl=ar&q=${location.lat},${location.lng}&z=15&output=embed`}
-          />
-        )}
+          {location && (
+            <iframe
+              title="خريطة الموقع"
+              width="100%"
+              height="250"
+              style={{ borderRadius: '12px' }}
+              loading="lazy"
+              allowFullScreen
+              src={`https://maps.google.com/maps?hl=ar&q=${location.lat},${location.lng}&z=15&output=embed`}
+            />
+          )}
+        </div>
 
-        {/* 💰 الملخص */}
-        <div className="bg-gray-50 rounded-xl p-3 text-gray-800 mt-3">
-          <div className="flex items-center justify-between text-sm">
-            <span>المجموع الأساسي</span>
+        <section className="bg-gray-50 rounded-xl p-3 text-gray-800 space-y-1 text-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1">💰 ملخص الفاتورة</h2>
+          <div className="flex items-center justify-between">
+            <span>إجمالي المنتجات (السعر الأساسي)</span>
             <span>{subtotal.toFixed(2)} ر.س</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س × {totalItems})</span>
+          <div className="flex items-center justify-between">
+            <span>نسبة التطبيق ({(commissionRate * 100).toFixed(0)}%)</span>
             <span>{applicationFeeTotal.toFixed(2)} ر.س</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>ضريبة التطبيق (15٪)</span>
-            <span>{commissionAmount.toFixed(2)} ر.س</span>
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>حصة المشرف</span>
+            <span>{supervisorShare.toFixed(2)} ر.س</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs text-gray-500">
+            <span>حصة التطبيق</span>
+            <span>{platformShare.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>الإجمالي قبل التوصيل</span>
+            <span>{totalBeforeDelivery.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex items-center justify-between">
             <span>رسوم التوصيل</span>
             <span>{deliveryFee.toFixed(2)} ر.س</span>
           </div>
-          <div className="flex items-center justify-between text-sm">
-            <span>مجموع الوجبات بعد رسوم التشغيل</span>
-            <span>{totalWithFees.toFixed(2)} ر.س</span>
-          </div>
-          <div className="flex items-center justify-between font-bold text-lg mt-1 text-gray-900">
-            <span>الإجمالي</span>
+          <div className="flex items-center justify-between text-lg font-bold text-gray-900 pt-1">
+            <span>الإجمالي المستحق</span>
             <span>{total.toFixed(2)} ر.س</span>
           </div>
-          <p className="text-[11px] text-gray-500 mt-2">
-            يصل للمطعم <span className="font-semibold text-gray-700">{subtotal.toFixed(2)} ر.س</span>، وتُضاف ضريبة التطبيق آلياً
-            بقيمة <span className="font-semibold text-gray-700">{commissionAmount.toFixed(2)} ر.س</span>، بالإضافة إلى رسوم تشغيل
-            التطبيق <span className="font-semibold text-gray-700">{applicationFeeTotal.toFixed(2)} ر.س</span> لحساب المنصة.
+          <p className="text-[11px] text-gray-500 leading-5">
+            يصل للمطعم <span className="font-semibold text-gray-700">{subtotal.toFixed(2)} ر.س</span> بينما تُوزَّع نسبة التطبيق بالتساوي بين المشرف والمنصة.
           </p>
-        </div>
+        </section>
 
-        {/* ✅ زر تأكيد الطلب */}
         <button
           disabled={saving}
           onClick={placeOrder}
-          className="w-full rounded-xl p-3 bg-green-600 hover:bg-green-700 text-white font-bold mt-3"
+          className="w-full rounded-xl p-3 bg-green-600 hover:bg-green-700 text-white font-bold"
+          type="button"
         >
-          {saving ? '...' : 'تأكيد الطلب (دفع عند الاستلام)'}
+          {saving ? 'جارٍ تأكيد الطلب...' : 'تأكيد الطلب (دفع عند الاستلام)'}
         </button>
       </div>
     </RoleGate>
