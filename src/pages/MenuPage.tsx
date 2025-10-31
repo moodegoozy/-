@@ -48,6 +48,8 @@ export const MenuPage: React.FC = () => {
     applicationFeePerItem,
     getUnitPriceWithFees,
     totalWithFees,
+    getBasePrice,
+    getMarkupPerUnit,
   } = useCart()
   const { role } = useAuth()
 
@@ -431,7 +433,7 @@ export const MenuPage: React.FC = () => {
             إتمام الطلب • المجموع: {totalWithFees.toFixed(2)} ر.س
           </Link>
           <div className="mt-1 text-center text-xs text-gray-200">
-            يشمل رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س لكل منتج)
+            يشمل نسبة التطبيق {(commissionRate * 100).toFixed(0)}% المضافة على الأسعار
           </div>
         </div>
       )}

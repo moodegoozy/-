@@ -9,11 +9,12 @@ export const CartPage: React.FC = () => {
     subtotal,
     remove,
     clear,
-    applicationFeePerItem,
     applicationFeeTotal,
     getItemTotalWithFees,
-    getUnitPriceWithFees,
+    getBasePrice,
+    getMarkupPerUnit,
     totalWithFees,
+    commissionRate,
   } = useCart()
 
   if (items.length === 0) {
@@ -36,11 +37,8 @@ export const CartPage: React.FC = () => {
               <div className="font-bold text-lg text-gray-900">
                 {getItemTotalWithFees(i).toFixed(2)} ر.س
               </div>
-              <div className="text-xs text-gray-500">
-                ({getUnitPriceWithFees(i.price).toFixed(2)} ر.س لكل وجبة بعد الرسوم)
-              </div>
-              <div className="text-[11px] text-gray-400">
-                السعر الأصلي {i.price.toFixed(2)} ر.س + رسوم التشغيل {applicationFeePerItem.toFixed(2)} ر.س
+              <div className="text-[11px] text-gray-500">
+                السعر الأساسي {getBasePrice(i).toFixed(2)} ر.س + نسبة التطبيق {getMarkupPerUnit(i).toFixed(2)} ر.س
               </div>
             </div>
 
@@ -64,7 +62,7 @@ export const CartPage: React.FC = () => {
           <span className="font-semibold">{subtotal.toFixed(2)} ر.س</span>
         </div>
         <div className="flex items-center justify-between">
-          <span>رسوم تشغيل التطبيق ({applicationFeePerItem.toFixed(2)} ر.س × {items.reduce((sum, item) => sum + item.qty, 0)})</span>
+          <span>نسبة التطبيق ({(commissionRate * 100).toFixed(0)}%)</span>
           <span className="font-semibold">{applicationFeeTotal.toFixed(2)} ر.س</span>
         </div>
         <div className="flex items-center justify-between text-lg font-bold text-gray-900 border-t pt-2">

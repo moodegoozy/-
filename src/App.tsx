@@ -21,6 +21,7 @@ import { EditRestaurant } from './pages/EditRestaurant'
 import { Landing } from './pages/Landing'
 import { CartPage } from './pages/CartPage'
 import { Developer } from './pages/Developer'
+import { DeveloperLogin } from './pages/DeveloperLogin'
 import { RestaurantsPage } from './pages/RestaurantsPage'
 import { AdsPage } from './pages/AdsPage'
 
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/developer/login" element={<DeveloperLogin />} />
           <Route path="/register" element={<Register />} />
           <Route path="/cart" element={<CartPage />} />
           <Route

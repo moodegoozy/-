@@ -1,66 +1,47 @@
-// src/pages/Landing.tsx
-import React from "react";
-import { Link } from "react-router-dom";
-import { useAuth } from "@/auth";
+import React from 'react'
+import { Link } from 'react-router-dom'
 
 export const Landing: React.FC = () => {
-  const { user } = useAuth();
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-sky-100 via-white to-sky-200 text-center px-6 text-slate-800 relative overflow-hidden">
-      {/* خلفية زخرفية ناعمة */}
-      <div className="absolute top-0 left-0 w-80 h-80 bg-sky-300/40 rounded-full blur-3xl animate-pulse"></div>
-      <div className="absolute bottom-0 right-0 w-80 h-80 bg-sky-500/30 rounded-full blur-3xl animate-pulse"></div>
-
-      {/* المحتوى */}
-      <div className="relative z-10 flex flex-col items-center">
-        {/* عنوان الموقع */}
-        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold text-sky-900 mb-4 drop-shadow-[0_4px_10px_rgba(30,64,175,0.25)]">
-          🍗 سفرة البيت
-        </h1>
-
-        {/* وصف الموقع */}
-        <p className="text-lg sm:text-xl md:text-2xl text-slate-700 max-w-2xl mb-8 leading-relaxed font-medium">
-          استمتع بأشهى الأكلات البيتية والبرست الطازج 😋  
-          اطلب وجبتك بكل سهولة، وخليها توصلك لين باب بيتك 🚗💨
+    <div className="min-h-[70vh] flex flex-col items-center justify-center gap-10 text-center text-slate-900">
+      <div className="space-y-3">
+        <h1 className="text-4xl md:text-5xl font-extrabold text-yellow-600 drop-shadow">🍗 سفرة البيت</h1>
+        <p className="text-base md:text-lg text-slate-600 max-w-2xl">
+          اختر نوع الدخول المناسب لك للانطلاق في النظام. العملاء يطلبون مباشرة، والمندوبون يتابعون الطلبات الموكلة لهم.
         </p>
+      </div>
 
-        {/* صورة الواجهة */}
-        <img
-          src="/landing.png" // ✅ تأكد أن الصورة داخل مجلد public
-          alt="طبق سفرة البيت"
-          className="w-64 sm:w-80 md:w-96 mb-10 rounded-3xl shadow-2xl border-4 border-white/70 object-cover hover:scale-105 transition-transform duration-300"
-        />
+      <div className="grid gap-6 sm:grid-cols-2 w-full max-w-3xl">
+        <Link
+          to="/login?mode=customer"
+          className="group rounded-3xl border border-yellow-400/40 bg-white/90 px-8 py-10 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl"
+        >
+          <div className="text-3xl mb-4">👥</div>
+          <h2 className="text-xl font-semibold text-slate-900">تسجيل دخول العملاء</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            دخول سريع لاستعراض المطاعم، إضافة الطلبات للسلة، وتتبع حالة التوصيل لحظة بلحظة.
+          </p>
+          <span className="mt-6 inline-flex items-center justify-center gap-2 text-sm font-semibold text-yellow-600 group-hover:text-yellow-500">
+            أدخل لحسابك الآن →
+          </span>
+        </Link>
 
-        {/* الأزرار */}
-        {user ? (
-          <Link
-            to="/restaurants"
-            className="px-10 py-4 rounded-full text-lg font-semibold text-primary bg-accent shadow-[0_4px_10px_rgba(0,0,0,0.3)] hover:scale-105 hover:shadow-lg transition-transform duration-300"
-          >
-            🍴 تصفح المطاعم
-          </Link>
-        ) : (
-          <div className="flex flex-col items-center gap-4">
-            <Link
-              to="/login"
-              className="px-10 py-4 rounded-full text-lg font-semibold text-white bg-sky-500 shadow-[0_4px_12px_rgba(14,116,144,0.25)] hover:bg-sky-600 hover:scale-105 hover:shadow-lg transition-transform duration-300"
-            >
-              تسجيل الدخول
-            </Link>
-
-            <p className="text-slate-600">
-              ماعندك حساب؟{" "}
-              <Link
-                to="/register"
-                className="text-sky-600 font-semibold hover:underline hover:text-sky-700 transition"
-              >
-                أنشئ حساب الآن
-              </Link>
-            </p>
-          </div>
-        )}
+        <Link
+          to="/login?mode=courier"
+          className="group rounded-3xl border border-slate-300 bg-white/80 px-8 py-10 shadow-lg transition hover:-translate-y-1 hover:shadow-2xl"
+        >
+          <div className="text-3xl mb-4">🚚</div>
+          <h2 className="text-xl font-semibold text-slate-900">تسجيل دخول المندوبين</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            اطلع على الطلبات الجديدة، استلم المهام الموكلة إليك، وحدّث الحالة من الاستلام حتى التسليم.
+          </p>
+          <span className="mt-6 inline-flex items-center justify-center gap-2 text-sm font-semibold text-slate-600 group-hover:text-slate-800">
+            إدارة الطلبات الموكلة →
+          </span>
+        </Link>
       </div>
     </div>
-  );
-};
+  )
+}
+
+export default Landing

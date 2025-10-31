@@ -367,6 +367,7 @@ export const Developer: React.FC = () => {
       setActionError('اختر مستندًا أولًا قبل محاولة الحفظ.')
       return
     }
+  }
 
     const payload = parseEditorValue()
     if (!payload) return
@@ -391,6 +392,7 @@ export const Developer: React.FC = () => {
       setActionError('اختر مستندًا أولًا قبل تنفيذ الدمج.')
       return
     }
+  }
 
     const payload = parseEditorValue()
     if (!payload) return
@@ -608,6 +610,24 @@ export const Developer: React.FC = () => {
                   تعبئة بالقالب
                 </button>
               </div>
+              <select
+                className="rounded-xl border border-slate-200 px-3 py-2 text-xs"
+                value={restaurant.supervisorId ?? ''}
+                onChange={(event) => handleAssignSupervisor(restaurant.id, event.target.value)}
+              >
+                <option value="">اختر مشرفاً</option>
+                {supervisors.map((supervisor) => (
+                  <option key={supervisor.id} value={supervisor.id}>
+                    {supervisor.name ?? supervisor.email ?? supervisor.id}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => handleDeleteRestaurant(restaurant.id)}
+                className="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-600"
+              >
+                حذف المطعم
+              </button>
             </div>
 
             {actionMessage && (
@@ -690,6 +710,8 @@ export const Developer: React.FC = () => {
           </div>
         </div>
       </section>
-    </section>
+    </div>
   )
 }
+
+export default Developer

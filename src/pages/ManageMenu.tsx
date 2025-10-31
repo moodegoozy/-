@@ -1,9 +1,10 @@
 // src/pages/ManageMenu.tsx
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { db, app } from '@/firebase'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, where, updateDoc } from 'firebase/firestore'
 import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage'
 import { useAuth } from '@/auth'
+import { usePlatformSettings } from '@/context/PlatformSettingsContext'
 
 type Item = {
   id?: string,
@@ -22,6 +23,8 @@ export const ManageMenu: React.FC = () => {
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState<Item>({ name: '', desc: '', price: 0, available: true })
+  const { commissionRate } = usePlatformSettings()
+  const multiplier = useMemo(() => 1 + commissionRate, [commissionRate])
 
   const storage = getStorage(app, "gs://albayt-sofra.firebasestorage.app")
 
@@ -30,7 +33,15 @@ export const ManageMenu: React.FC = () => {
     if (!user) return
     const q = query(collection(db, 'menuItems'), where('ownerId', '==', user.uid))
     const snap = await getDocs(q)
-    setItems(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })))
+    setItems(
+      snap.docs.map((d) => {
+        const data = d.data() as any
+        const basePrice = typeof data.basePrice === 'number'
+          ? Number(data.basePrice.toFixed?.(2) ?? data.basePrice)
+          : Number(((Number(data.price ?? 0)) / multiplier).toFixed(2))
+        return { id: d.id, ...data, basePrice }
+      }),
+    )
     setLoading(false)
   }
 

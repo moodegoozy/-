@@ -1,5 +1,5 @@
-// src/pages/Login.tsx
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, db } from '@/firebase'
 import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
@@ -7,47 +7,39 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { Link, useNavigate } from 'react-router-dom'
 import { Megaphone } from 'lucide-react'
 
-export type LoginMode = 'general' | 'family' | 'restaurant'
+import { auth, db } from '@/firebase'
 
-export interface LoginProps {
-  defaultMode?: LoginMode
-}
+type Mode = 'customer' | 'courier'
 
-type UserData = {
+type UserRecord = {
   role?: string
-  [key: string]: unknown
+  fullName?: string
 }
 
-type OwnerProfile = UserData & {
-  accountType?: string
-  ownerType?: string
-  freelancerCertificate?: string
-  freelanceCertificate?: string
-  commercialRegistration?: string
-  crNumber?: string
+const messages: Record<Mode, { title: string; description: string; cta: string }> = {
+  customer: {
+    title: 'دخول العملاء',
+    description: 'اطلب وجباتك، تابع السلة، وتحقق من حالة طلباتك الحالية.',
+    cta: 'دخول العميل',
+  },
+  courier: {
+    title: 'دخول المندوبين',
+    description: 'استلم الطلبات المسندة إليك وتتبعها حتى التسليم.',
+    cta: 'دخول المندوب',
+  },
 }
 
-const normalizeAccountType = (profile: OwnerProfile) => {
-  const possible = [profile.accountType, profile.ownerType].find((value) => typeof value === 'string')
-  return possible ? possible.trim().toLowerCase() : ''
+const roleRequired: Record<Mode, string> = {
+  customer: 'customer',
+  courier: 'courier',
 }
 
-const normalizeCertificate = (profile: OwnerProfile) => {
-  const possible =
-    [profile.freelancerCertificate, profile.freelanceCertificate].find((value) => typeof value === 'string') || ''
-  return possible.trim()
-}
+const toMode = (raw: string | null): Mode => (raw === 'courier' ? 'courier' : 'customer')
 
-const normalizeCommercialRegistration = (profile: OwnerProfile) => {
-  const possible = [profile.commercialRegistration, profile.crNumber].find((value) => typeof value === 'string') || ''
-  return possible.trim()
-}
-
-const familiesAccountTypes = ['family', 'productive-family', 'productive_family', 'productive']
-const restaurantAccountTypes = ['restaurant', 'resturant', 'commercial']
-
-export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
+export const Login: React.FC = () => {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const [mode, setMode] = useState<Mode>(() => toMode(params.get('mode')))
 
   const [mode, setMode] = useState<LoginMode>(defaultMode)
 
@@ -70,40 +62,13 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
   const [restaurantError, setRestaurantError] = useState<string | null>(null)
 
   useEffect(() => {
-    setMode(defaultMode)
-  }, [defaultMode])
+    setMode(toMode(params.get('mode')))
+  }, [params])
 
-  const options = useMemo(
-    () => [
-      {
-        id: 'general' as LoginMode,
-        title: 'العملاء والمندوبين',
-        subtitle: 'دخولك المعتاد لحساب العميل أو المندوب.'
-      },
-      {
-        id: 'family' as LoginMode,
-        title: 'الأسر المنتجة',
-        subtitle: 'دخول خاص بالأسر المنتجة مع التحقق من شهادة العمل الحر.'
-      },
-      {
-        id: 'restaurant' as LoginMode,
-        title: 'المطاعم',
-        subtitle: 'دخول أصحاب المطاعم مع التحقق من السجل التجاري.'
-      }
-    ],
-    [],
-  )
-
-  const clearErrors = () => {
-    setGeneralError(null)
-    setFamilyError(null)
-    setRestaurantError(null)
-  }
-
-  const submitGeneral = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setGeneralError(null)
-    setGeneralLoading(true)
+    setError(null)
+    setLoading(true)
 
     try {
       const userCred = await signInWithEmailAndPassword(auth, generalEmail.trim(), generalPassword)
@@ -168,106 +133,24 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
 
       if (!snapshot.exists()) {
         await signOut(auth)
-        throw new Error('تعذّر العثور على بيانات الحساب. يرجى التواصل مع الدعم.')
+        throw new Error('الحساب غير مسجل في قاعدة بيانات المستخدمين.')
       }
 
-      const data = snapshot.data() as OwnerProfile
-
-      if (data.role !== 'owner') {
+      const data = snapshot.data() as UserRecord
+      if (data.role !== roleRequired[mode]) {
         await signOut(auth)
-        throw new Error('هذا الحساب غير مسجل كحساب أسرة منتجة.')
+        throw new Error('نوع الحساب لا يطابق خيار الدخول المختار.')
       }
 
-      const type = normalizeAccountType(data)
-      if (type && !familiesAccountTypes.includes(type)) {
-        await signOut(auth)
-        throw new Error('هذا الحساب مسجل كنوع مختلف. استخدمي الوضع المناسب للحساب.')
-      }
-
-      const storedCertificate = normalizeCertificate(data)
-      if (storedCertificate && storedCertificate !== trimmedCertificate) {
-        await signOut(auth)
-        throw new Error('رقم شهادة العمل الحر غير مطابق للسجل لدينا.')
-      }
-
-      if (!storedCertificate) {
-        await setDoc(
-          userDoc,
-          {
-            accountType: 'family',
-            freelancerCertificate: trimmedCertificate,
-          },
-          { merge: true },
-        )
-      }
-
-      navigate('/owner', { replace: true })
+      navigate(mode === 'customer' ? '/restaurants' : '/courier', { replace: true })
     } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.'
-      setFamilyError(message)
+      if (err instanceof Error && err.message) {
+        setError(err.message)
+      } else {
+        setError('تعذر تسجيل الدخول. حاول مرة أخرى.')
+      }
     } finally {
-      setFamilyLoading(false)
-    }
-  }
-
-  const submitRestaurant = async (event: React.FormEvent) => {
-    event.preventDefault()
-
-    const trimmedRegistration = restaurantCR.trim()
-    if (!trimmedRegistration) {
-      setRestaurantError('الرجاء إدخال رقم السجل التجاري المرتبط بالحساب.')
-      return
-    }
-
-    setRestaurantError(null)
-    setRestaurantLoading(true)
-
-    try {
-      const credentials = await signInWithEmailAndPassword(auth, restaurantEmail.trim(), restaurantPassword)
-      const userDoc = doc(db, 'users', credentials.user.uid)
-      const snapshot = await getDoc(userDoc)
-
-      if (!snapshot.exists()) {
-        await signOut(auth)
-        throw new Error('تعذّر العثور على بيانات الحساب. يرجى التواصل مع الدعم.')
-      }
-
-      const data = snapshot.data() as OwnerProfile
-
-      if (data.role !== 'owner') {
-        await signOut(auth)
-        throw new Error('هذا الحساب غير مسجل كحساب مطعم.')
-      }
-
-      const type = normalizeAccountType(data)
-      if (type && !restaurantAccountTypes.includes(type)) {
-        await signOut(auth)
-        throw new Error('هذا الحساب مسجل كنوع مختلف. استخدم الوضع المناسب للحساب.')
-      }
-
-      const storedRegistration = normalizeCommercialRegistration(data)
-      if (storedRegistration && storedRegistration !== trimmedRegistration) {
-        await signOut(auth)
-        throw new Error('رقم السجل التجاري غير مطابق للسجل لدينا.')
-      }
-
-      if (!storedRegistration) {
-        await setDoc(
-          userDoc,
-          {
-            accountType: 'restaurant',
-            commercialRegistration: trimmedRegistration,
-          },
-          { merge: true },
-        )
-      }
-
-      navigate('/owner', { replace: true })
-    } catch (err) {
-      const message = err instanceof Error && err.message ? err.message : 'حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.'
-      setRestaurantError(message)
-    } finally {
-      setRestaurantLoading(false)
+      setLoading(false)
     }
   }
 
@@ -498,73 +381,27 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-10 bg-gradient-to-br from-primary via-dark to-[#3a1a1a] px-4 py-16">
-      <section className="w-full max-w-4xl space-y-6">
-        <Link
-          to="/ads"
-          className="flex flex-col gap-4 rounded-3xl border border-accent/30 bg-[rgba(43,26,22,0.88)] p-5 text-secondary shadow-2xl transition hover:border-accent hover:shadow-amber-400/30"
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-row-reverse items-center gap-3 text-right sm:gap-4">
-              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent/20 text-accent">
-                <Megaphone className="h-6 w-6" />
-              </span>
-              <div className="space-y-1">
-                <p className="text-sm text-accent/70">مساحة إعلانية رمزية</p>
-                <h2 className="text-xl font-bold text-accent">أبرز إعلانك لكل مستخدم</h2>
-              </div>
-            </div>
-            <span className="self-start rounded-2xl bg-accent px-4 py-2 text-sm font-semibold text-primary shadow sm:self-auto">
-              اكتشف التفاصيل
-            </span>
-          </div>
-          <p className="text-sm text-secondary/80">
-            وفرنا خانة مخصّصة للإعلانات داخل التطبيق برسوم رمزية مع علامة مكبر النداء حتى يظهر إعلانك لجميع العملاء والأسر المنتجة والمطاعم فوراً بعد اعتماده.
-          </p>
-        </Link>
-
-        <div className="grid gap-3 md:grid-cols-3">
-          {options.map((option) => {
-            const isActive = mode === option.id
-            const baseColors =
-              option.id === 'family'
-                ? 'border-amber-200/30 bg-[rgba(39,22,19,0.88)] text-amber-50 hover:border-amber-300 hover:shadow-amber-500/30'
-                : option.id === 'restaurant'
-                ? 'border-sky-200/30 bg-[rgba(12,24,30,0.9)] text-sky-50 hover:border-sky-300 hover:shadow-sky-500/30'
-                : 'border-accent/30 bg-[rgba(43,26,22,0.85)] text-secondary hover:border-accent hover:shadow-amber-400/30'
-
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => {
-                  clearErrors()
-                  setMode(option.id)
-                }}
-                className={`group flex flex-col justify-between rounded-3xl border p-5 text-right shadow-xl transition focus:outline-none focus:ring-2 focus:ring-accent/60 ${
-                  baseColors
-                } ${isActive ? 'ring-2 ring-accent/60' : 'opacity-80 hover:opacity-100'}`}
-              >
-                <div className="space-y-2">
-                  <h3 className="text-xl font-bold">{option.title}</h3>
-                  <p className="text-sm opacity-80">{option.subtitle}</p>
-                </div>
-                <span
-                  className={`mt-4 inline-flex items-center justify-center rounded-2xl px-5 py-2 text-sm font-semibold transition ${
-                    option.id === 'family'
-                      ? 'bg-amber-300/90 text-[#2c1b17]'
-                      : option.id === 'restaurant'
-                      ? 'bg-sky-300/90 text-[#102026]'
-                      : 'bg-accent text-primary'
-                  } ${isActive ? '' : 'group-hover:scale-105 group-hover:brightness-110'}`}
-                >
-                  {isActive ? 'الوضع الحالي' : 'اختيار'}
-                </span>
-              </button>
-            )
-          })}
+    <div className="mx-auto flex max-w-4xl flex-col gap-8 rounded-3xl bg-white/90 p-8 text-slate-900 shadow-xl">
+      <header className="flex flex-col gap-3 text-right">
+        <div className="flex justify-center gap-3 text-sm font-semibold">
+          <button
+            onClick={() => setMode('customer')}
+            className={`rounded-full px-4 py-2 transition ${mode === 'customer' ? 'bg-yellow-400 text-slate-900 shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            type="button"
+          >
+            العملاء
+          </button>
+          <button
+            onClick={() => setMode('courier')}
+            className={`rounded-full px-4 py-2 transition ${mode === 'courier' ? 'bg-yellow-400 text-slate-900 shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            type="button"
+          >
+            المندوبون
+          </button>
         </div>
-      </section>
+        <h1 className="text-2xl font-bold text-slate-900 text-center">{content.title}</h1>
+        <p className="text-sm text-slate-600 text-center">{content.description}</p>
+      </header>
 
       <div
         className={`w-full max-w-xl rounded-3xl border p-8 shadow-2xl backdrop-blur-xl ${
