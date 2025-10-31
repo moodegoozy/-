@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, db } from '@/firebase'
+import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { Link, useNavigate } from 'react-router-dom'
 import { Megaphone } from 'lucide-react'
@@ -52,6 +53,7 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
 
   const [generalEmail, setGeneralEmail] = useState('')
   const [generalPassword, setGeneralPassword] = useState('')
+  const [generalDeveloperCode, setGeneralDeveloperCode] = useState('')
   const [generalLoading, setGeneralLoading] = useState(false)
   const [generalError, setGeneralError] = useState<string | null>(null)
 
@@ -114,6 +116,14 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
       }
 
       const userData = snap.data() as UserData
+
+      const trimmedDeveloperCode = generalDeveloperCode.trim()
+
+      try {
+        window.sessionStorage.removeItem(DEVELOPER_ACCESS_SESSION_KEY)
+      } catch (storageError) {
+        console.warn('تعذّر تحديث جلسة المطور:', storageError)
+      }
 
       switch (userData.role) {
         case 'owner':
@@ -448,6 +458,25 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
                 required
                 autoComplete="current-password"
               />
+
+              {developerAccessCode && (
+                <div className="space-y-2 rounded-2xl border border-accent/30 bg-[#2b1a16] p-3">
+                  <label className="flex flex-col gap-2 text-right text-sm text-secondary/80">
+                    <span className="font-semibold text-accent">رمز لوحة المطور</span>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      placeholder="أدخل الرمز السري للوصول إلى لوحة المطور"
+                      className="w-full rounded-xl border border-accent/30 bg-[#3c211c] p-3 text-secondary placeholder-[#f8deb0b3] focus:outline-none focus:ring-2 focus:ring-accent"
+                      value={generalDeveloperCode}
+                      onChange={(event) => setGeneralDeveloperCode(event.target.value)}
+                      disabled={generalLoading}
+                      autoComplete="one-time-code"
+                    />
+                    <span className="text-xs text-secondary/70">لن تحتاج إليه إلا إذا كان دور حسابك مطور.</span>
+                  </label>
+                </div>
+              )}
 
               <button
                 disabled={generalLoading}
