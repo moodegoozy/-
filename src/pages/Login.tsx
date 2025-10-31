@@ -136,15 +136,6 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
           navigate('/admin/panel')
           break
         case 'developer':
-          if (developerAccessCode && trimmedDeveloperCode !== developerAccessCode) {
-            await signOut(auth)
-            throw new Error('رمز دخول المطور غير صحيح. الرجاء المحاولة مرة أخرى.')
-          }
-          try {
-            window.sessionStorage.setItem(DEVELOPER_ACCESS_SESSION_KEY, 'granted')
-          } catch (storageError) {
-            console.warn('تعذّر حفظ جلسة المطور:', storageError)
-          }
           navigate('/developer')
           break
         default:

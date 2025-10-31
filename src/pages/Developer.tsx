@@ -1,7 +1,6 @@
 // src/pages/Developer.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { db } from '@/firebase'
-import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
 import {
   addDoc,
   collection,
@@ -167,56 +166,6 @@ const stringifyDocument = (data: DocumentData) => {
 
 export const Developer: React.FC = () => {
   const { user } = useAuth()
-  const [accessCode, setAccessCode] = useState('')
-  const [accessError, setAccessError] = useState<string | null>(null)
-  const [hasAccess, setHasAccess] = useState(false)
-
-  useEffect(() => {
-    if (!developerAccessCode) {
-      setHasAccess(true)
-      return
-    }
-
-    try {
-      const stored = window.sessionStorage.getItem(DEVELOPER_ACCESS_SESSION_KEY)
-      if (stored === 'granted') {
-        setHasAccess(true)
-      }
-    } catch (error) {
-      console.warn('تعذّر قراءة جلسة المطور:', error)
-    }
-  }, [developerAccessCode])
-
-  const verifyAccess = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (!developerAccessCode) {
-        setHasAccess(true)
-        return
-      }
-
-      const trimmed = accessCode.trim()
-      if (!trimmed) {
-        setAccessError('الرجاء إدخال الرمز السري للوصول إلى لوحة المطور.')
-        return
-      }
-
-      if (trimmed !== developerAccessCode) {
-        setAccessError('الرمز المدخل غير صحيح.')
-        return
-      }
-
-      try {
-        window.sessionStorage.setItem(DEVELOPER_ACCESS_SESSION_KEY, 'granted')
-      } catch (error) {
-        console.warn('تعذّر حفظ جلسة المطور:', error)
-      }
-      setAccessError(null)
-      setAccessCode('')
-      setHasAccess(true)
-    },
-    [accessCode, developerAccessCode],
-  )
   const [stats, setStats] = useState<Record<string, number>>({})
   const [statsError, setStatsError] = useState<string | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -240,46 +189,6 @@ export const Developer: React.FC = () => {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [working, setWorking] = useState(false)
-
-  if (!hasAccess) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#0b1620] px-4 py-16 text-right text-slate-100">
-        <div className="w-full max-w-md space-y-6 rounded-3xl border border-slate-700/60 bg-[#111f2d] p-8 shadow-2xl">
-          <header className="space-y-2">
-            <h1 className="text-2xl font-bold text-sky-200">حماية لوحة المطور</h1>
-            <p className="text-sm text-slate-300/80">
-              للوصول إلى أدوات المطور المتقدمة، أدخل الرمز السري المخصص لك من الإدارة التقنية.
-            </p>
-          </header>
-
-          {accessError && (
-            <div className="rounded-2xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-100">{accessError}</div>
-          )}
-
-          <form onSubmit={verifyAccess} className="space-y-4">
-            <input
-              type="password"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder="أدخل الرمز السري"
-              className="w-full rounded-2xl border border-sky-500/30 bg-[#0c1a27] p-3 text-base text-slate-100 placeholder-slate-300/60 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-              value={accessCode}
-              onChange={(event) => {
-                setAccessCode(event.target.value)
-                setAccessError(null)
-              }}
-            />
-            <button
-              type="submit"
-              className="w-full rounded-2xl bg-sky-400/90 py-3 text-base font-semibold text-[#041320] shadow-lg transition hover:bg-sky-300"
-            >
-              دخول لوحة المطور
-            </button>
-          </form>
-        </div>
-      </div>
-    )
-  }
 
   const fetchStats = useCallback(async () => {
     setStatsLoading(true)
