@@ -16,7 +16,10 @@ export const CheckoutPage: React.FC = () => {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null)
 
   const deliveryFee = 7
-  const total = subtotal + deliveryFee
+  const commissionRate = 0.15
+  const commissionAmount = +(subtotal * commissionRate).toFixed(2)
+  const totalBeforeDelivery = subtotal + commissionAmount
+  const total = totalBeforeDelivery + deliveryFee
 
   // ✅ تحميل بيانات المطعم
   useEffect(() => {
@@ -96,6 +99,11 @@ export const CheckoutPage: React.FC = () => {
       subtotal,
       deliveryFee,
       total,
+      commissionRate,
+      commissionAmount,
+      totalBeforeDelivery,
+      restaurantPayout: subtotal,
+      applicationShare: commissionAmount,
       status: 'pending',
       address,
       location,
@@ -156,8 +164,12 @@ export const CheckoutPage: React.FC = () => {
         {/* 💰 الملخص */}
         <div className="bg-gray-50 rounded-xl p-3 text-gray-800 mt-3">
           <div className="flex items-center justify-between text-sm">
-            <span>المجموع</span>
+            <span>المجموع الأساسي</span>
             <span>{subtotal.toFixed(2)} ر.س</span>
+          </div>
+          <div className="flex items-center justify-between text-sm">
+            <span>ضريبة التطبيق (15٪)</span>
+            <span>{commissionAmount.toFixed(2)} ر.س</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span>رسوم التوصيل</span>
@@ -167,6 +179,10 @@ export const CheckoutPage: React.FC = () => {
             <span>الإجمالي</span>
             <span>{total.toFixed(2)} ر.س</span>
           </div>
+          <p className="text-[11px] text-gray-500 mt-2">
+            يصل للمطعم <span className="font-semibold text-gray-700">{subtotal.toFixed(2)} ر.س</span>، وتُضاف ضريبة التطبيق آلياً
+            بقيمة <span className="font-semibold text-gray-700">{commissionAmount.toFixed(2)} ر.س</span> لحساب المنصة.
+          </p>
         </div>
 
         {/* ✅ زر تأكيد الطلب */}
