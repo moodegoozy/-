@@ -1,490 +1,614 @@
+// src/pages/Developer.tsx
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { db } from '@/firebase'
 import {
   addDoc,
   collection,
   deleteDoc,
   doc,
+  getCountFromServer,
   getDocs,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
   setDoc,
-  updateDoc,
-  where,
+  type DocumentData,
 } from 'firebase/firestore'
-
+import { Database, Loader2, PlusCircle, RefreshCcw, Save, Trash2, Wand2 } from 'lucide-react'
 import { useAuth } from '@/auth'
-import { db } from '@/firebase'
-import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
-import { usePlatformSettings } from '@/context/PlatformSettingsContext'
 
-const managedCollections = ['users', 'restaurants', 'menuItems', 'orders', 'supervisors', 'restaurantRequests', 'reports']
+const EMPTY_JSON = '{\n  \n}'
 
-type Restaurant = {
+type CollectionDefinition = {
   id: string
-  name: string
-  city?: string
-  supervisorId?: string
-  supervisorEmail?: string
-  status?: string
+  label: string
+  description: string
+  summaryFields?: string[]
+  sample?: () => DocumentData
 }
 
-type Supervisor = {
+type FirestoreDocument = {
   id: string
-  name?: string
-  email?: string
+  data: DocumentData
 }
 
-type Report = {
-  id: string
-  message: string
-  supervisorEmail?: string | null
-  status?: string
-  createdAt?: Date | null
-}
+const MANAGED_COLLECTIONS: CollectionDefinition[] = [
+  {
+    id: 'users',
+    label: 'المستخدمون',
+    description: 'حسابات الدخول والأدوار المخزنة في users/{uid}',
+    summaryFields: ['email', 'role'],
+    sample: () => ({
+      email: 'example@domain.com',
+      role: 'customer',
+      phone: '+966500000000',
+      createdAt: new Date().toISOString(),
+    }),
+  },
+  {
+    id: 'restaurants',
+    label: 'المطاعم',
+    description: 'ملفات تعريف المطاعم بما في ذلك المدينة ووسائل التواصل والمالك المرتبط.',
+    summaryFields: ['name', 'city', 'phone'],
+    sample: () => ({
+      name: 'مطعم برست القرية',
+      city: 'جدة',
+      phone: '0555000000',
+      ownerUid: 'REPLACE_WITH_OWNER_UID',
+      logoUrl: '',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    }),
+  },
+  {
+    id: 'menuItems',
+    label: 'الأصناف',
+    description: 'الأطباق والأسعار المتاحة في كل مطعم، مع ربطها بمعرف صاحب المطعم.',
+    summaryFields: ['name', 'ownerId', 'price'],
+    sample: () => ({
+      name: 'برست عائلي',
+      desc: 'وجبة عائلية تكفي 4 أشخاص مع صوصات جانبية.',
+      price: 48,
+      available: true,
+      featured: false,
+      ownerId: 'REPLACE_WITH_OWNER_UID',
+      imageUrl: '',
+      createdAt: new Date().toISOString(),
+    }),
+  },
+  {
+    id: 'orders',
+    label: 'الطلبات',
+    description: 'سجل الطلبات وحالاتها والربط بين العملاء والمطاعم.',
+    summaryFields: ['status', 'customerName', 'total'],
+    sample: () => ({
+      status: 'pending',
+      customerName: 'زائر المنصة',
+      total: 120,
+      subtotal: 100,
+      deliveryFee: 20,
+      restaurantId: 'REPLACE_WITH_OWNER_UID',
+      createdAt: new Date().toISOString(),
+      items: [
+        {
+          id: 'REPLACE_WITH_MENU_ITEM_ID',
+          name: 'برست عائلي',
+          qty: 1,
+          ownerId: 'REPLACE_WITH_OWNER_UID',
+          price: 48,
+        },
+      ],
+    }),
+  },
+]
 
-type RestaurantRequest = {
-  id: string
-  name: string
-  city?: string
-  location?: string
-  status?: string
-  supervisorEmail?: string | null
-  createdAt?: Date | null
-}
-
-const toDate = (value: unknown): Date | null => {
-  if (!value) return null
-  if (value instanceof Date) return value
-  if (typeof value === 'object' && value) {
-    const ts = value as { seconds?: number; toDate?: () => Date }
-    if (typeof ts.toDate === 'function') return ts.toDate()
-    if (typeof ts.seconds === 'number') return new Date(ts.seconds * 1000)
+const formatFieldValue = (value: unknown, field?: string): string => {
+  if (value === null) return 'null'
+  if (typeof value === 'string') return value || '—'
+  if (typeof value === 'number') {
+    const fieldName = field?.toLowerCase() ?? ''
+    const formatted = value.toLocaleString('ar-SA', {
+      maximumFractionDigits: 2,
+    })
+    if (['price', 'total', 'amount', 'fee', 'payout'].some((key) => fieldName.includes(key))) {
+      return `${formatted} ر.س`
+    }
+    return formatted
   }
-  return null
+  if (typeof value === 'boolean') return value ? 'نعم' : 'لا'
+  if (Array.isArray(value)) return `مصفوفة (${value.length})`
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    if ('seconds' in record && 'nanoseconds' in record) {
+      const seconds = Number(record.seconds)
+      const nanoseconds = Number(record.nanoseconds)
+      if (!Number.isNaN(seconds)) {
+        const date = new Date(seconds * 1000 + Math.floor(nanoseconds / 1_000_000))
+        return date.toLocaleString('ar-SA')
+      }
+    }
+    return `كائن (${Object.keys(record).length} حقل)`
+  }
+  return '—'
+}
+
+const summarizeDocument = (definition: CollectionDefinition, doc: FirestoreDocument) => {
+  const data = (doc.data ?? {}) as Record<string, unknown>
+  if (definition.summaryFields?.length) {
+    const values = definition.summaryFields
+      .map((field) => {
+        const value = data[field]
+        if (value === undefined) return null
+        return formatFieldValue(value, field)
+      })
+      .filter(Boolean) as string[]
+
+    if (values.length > 0) {
+      return values.join(' • ')
+    }
+  }
+
+  const entries = Object.entries(data)
+    .slice(0, 3)
+    .map(([key, value]) => `${key}: ${formatFieldValue(value, key)}`)
+
+  return entries.length > 0 ? entries.join(' • ') : 'لا توجد حقول بعد لهذا المستند'
+}
+
+const stringifyDocument = (data: DocumentData) => {
+  try {
+    return JSON.stringify(data, null, 2)
+  } catch (error) {
+    try {
+      return JSON.stringify(JSON.parse(JSON.stringify(data)), null, 2)
+    } catch {
+      return EMPTY_JSON
+    }
+  }
 }
 
 export const Developer: React.FC = () => {
   const { user } = useAuth()
-  const { commissionRate, updateCommissionRate } = usePlatformSettings()
+  const [stats, setStats] = useState<Record<string, number>>({})
+  const [statsError, setStatsError] = useState<string | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
 
-  const [hasAccess, setHasAccess] = useState<boolean>(() => !developerAccessCode)
-  const [accessCode, setAccessCode] = useState('')
-  const [accessError, setAccessError] = useState<string | null>(null)
+  const [activeCollectionId, setActiveCollectionId] = useState<string>(MANAGED_COLLECTIONS[0].id)
+  const activeDefinition = useMemo(
+    () => MANAGED_COLLECTIONS.find((definition) => definition.id === activeCollectionId) ?? MANAGED_COLLECTIONS[0],
+    [activeCollectionId],
+  )
 
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
-  const [supervisors, setSupervisors] = useState<Supervisor[]>([])
-  const [reports, setReports] = useState<Report[]>([])
-  const [requests, setRequests] = useState<RestaurantRequest[]>([])
-  const [usersByRole, setUsersByRole] = useState<Record<string, number>>({})
-  const [explorerCollection, setExplorerCollection] = useState(managedCollections[0])
-  const [explorerDocs, setExplorerDocs] = useState<Array<{ id: string; data: Record<string, unknown> }>>([])
-  const [explorerLoading, setExplorerLoading] = useState(false)
+  const [documents, setDocuments] = useState<FirestoreDocument[]>([])
+  const [docsLoading, setDocsLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const [filterTerm, setFilterTerm] = useState('')
 
-  const [newRestaurantName, setNewRestaurantName] = useState('')
-  const [newRestaurantCity, setNewRestaurantCity] = useState('')
-  const [newRestaurantSupervisor, setNewRestaurantSupervisor] = useState('')
-  const [savingRestaurant, setSavingRestaurant] = useState(false)
-  const [savingRate, setSavingRate] = useState(false)
+  const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create')
+  const [editorId, setEditorId] = useState('')
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [editorValue, setEditorValue] = useState(EMPTY_JSON)
 
-  useEffect(() => {
-    if (!developerAccessCode) {
-      setHasAccess(true)
-      return
-    }
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
+
+  const fetchStats = useCallback(async () => {
+    setStatsLoading(true)
+    setStatsError(null)
     try {
-      if (window.sessionStorage.getItem(DEVELOPER_ACCESS_SESSION_KEY) === 'granted') {
-        setHasAccess(true)
+      const results = await Promise.all(
+        MANAGED_COLLECTIONS.map(async (definition) => {
+          try {
+            const snapshot = await getCountFromServer(collection(db, definition.id))
+            return { id: definition.id, count: snapshot.data().count }
+          } catch (error) {
+            console.error('Failed to load stats for collection', definition.id, error)
+            return { id: definition.id, count: 0, failed: true }
+          }
+        }),
+      )
+
+      const nextStats: Record<string, number> = {}
+      const hasFailures = results.some((result) => result.failed)
+      results.forEach((result) => {
+        nextStats[result.id] = result.count
+      })
+      setStats(nextStats)
+      if (hasFailures) {
+        setStatsError('بعض الإحصائيات لم يتم تحميلها. تأكد من الصلاحيات أو حاول مجددًا.')
       }
     } catch (error) {
-      console.warn('تعذّر قراءة جلسة المطور:', error)
+      console.error('Failed to load global stats', error)
+      setStatsError('تعذر تحميل الإحصائيات. تحقق من الاتصال أو من إعدادات أمان Firestore.')
+    } finally {
+      setStatsLoading(false)
     }
   }, [])
 
-  const verifyAccess = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      if (!developerAccessCode) {
-        setHasAccess(true)
-        return
+  const loadDocuments = useCallback(async (collectionId: string) => {
+    setDocsLoading(true)
+    setListError(null)
+    try {
+      const snapshot = await getDocs(collection(db, collectionId))
+      const mapped: FirestoreDocument[] = snapshot.docs.map((docSnapshot) => ({
+        id: docSnapshot.id,
+        data: docSnapshot.data(),
+      }))
+
+      mapped.sort((a, b) => a.id.localeCompare(b.id))
+      setDocuments(mapped)
+    } catch (error) {
+      console.error('Failed to load documents for collection', collectionId, error)
+      setDocuments([])
+      setListError('تعذر تحميل المستندات. تأكد من اسم المجموعة والصلاحيات.')
+    } finally {
+      setDocsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStats()
+  }, [fetchStats])
+
+  useEffect(() => {
+    loadDocuments(activeDefinition.id)
+  }, [activeDefinition.id, loadDocuments])
+
+  useEffect(() => {
+    setEditorMode('create')
+    setEditorId('')
+    setSelectedDocId(null)
+    setActionError(null)
+    setActionMessage(null)
+    const template = activeDefinition.sample?.() ?? {}
+    setEditorValue(Object.keys(template).length > 0 ? JSON.stringify(template, null, 2) : EMPTY_JSON)
+  }, [activeDefinition])
+
+  const filteredDocuments = useMemo(() => {
+    const term = filterTerm.trim().toLowerCase()
+    if (!term) return documents
+    return documents.filter((document) => {
+      if (document.id.toLowerCase().includes(term)) return true
+      try {
+        return JSON.stringify(document.data).toLowerCase().includes(term)
+      } catch {
+        return false
       }
-      if (accessCode.trim() === developerAccessCode) {
-        try {
-          window.sessionStorage.setItem(DEVELOPER_ACCESS_SESSION_KEY, 'granted')
-        } catch (error) {
-          console.warn('تعذّر حفظ جلسة المطور:', error)
-        }
-        setHasAccess(true)
-        setAccessError(null)
+    })
+  }, [documents, filterTerm])
+
+  const parseEditorValue = (): DocumentData | null => {
+    try {
+      if (!editorValue.trim()) {
+        return {}
+      }
+      const parsed = JSON.parse(editorValue) as unknown
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setActionError('يجب أن يكون الجذر في JSON كائنًا (Object) وليس مصفوفة.')
+        return null
+      }
+      return parsed as DocumentData
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'صيغة JSON غير صحيحة.'
+      setActionError(`تعذر قراءة JSON: ${message}`)
+      return null
+    }
+  }
+
+  const handleSelectDocument = (document: FirestoreDocument) => {
+    setEditorMode('edit')
+    setSelectedDocId(document.id)
+    setEditorId(document.id)
+    setActionMessage(null)
+    setActionError(null)
+    setEditorValue(stringifyDocument(document.data))
+  }
+
+  const resetEditorToTemplate = () => {
+    setEditorMode('create')
+    setSelectedDocId(null)
+    setEditorId('')
+    setActionMessage(null)
+    setActionError(null)
+    const template = activeDefinition.sample?.() ?? {}
+    setEditorValue(Object.keys(template).length > 0 ? JSON.stringify(template, null, 2) : EMPTY_JSON)
+  }
+
+  const handleApplyTemplate = () => {
+    const template = activeDefinition.sample?.()
+    if (template) {
+      setEditorValue(JSON.stringify(template, null, 2))
+      setActionMessage('تم تحميل القالب الافتراضي للمجموعة الحالية.')
+      setActionError(null)
+      setEditorMode('create')
+      setSelectedDocId(null)
+      setEditorId('')
+    }
+  }
+
+  const handleCreateDocument = async () => {
+    if (editorMode !== 'create') {
+      resetEditorToTemplate()
+      return
+    }
+
+    const payload = parseEditorValue()
+    if (!payload) return
+
+    setWorking(true)
+    setActionMessage(null)
+    setActionError(null)
+    try {
+      const colRef = collection(db, activeDefinition.id)
+      const trimmedId = editorId.trim()
+      let createdId = trimmedId
+
+      if (trimmedId) {
+        await setDoc(doc(colRef, trimmedId), payload)
       } else {
-        setAccessError('الرمز المدخل غير صحيح.')
+        const newDoc = await addDoc(colRef, payload)
+        createdId = newDoc.id
       }
-    },
-    [accessCode],
-  )
 
-  useEffect(() => {
-    if (!hasAccess) return
-    const unsubscribe = onSnapshot(collection(db, 'restaurants'), (snapshot) => {
-      setRestaurants(
-        snapshot.docs.map((document) => {
-          const data = document.data() as Record<string, unknown>
-          return {
-            id: document.id,
-            name: String(data.name ?? 'مطعم'),
-            city: typeof data.city === 'string' ? data.city : undefined,
-            status: typeof data.status === 'string' ? data.status : undefined,
-            supervisorId: typeof data.supervisorId === 'string' ? data.supervisorId : undefined,
-            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
-          }
-        }),
-      )
-    })
-    return () => unsubscribe()
-  }, [hasAccess])
-
-  useEffect(() => {
-    if (!hasAccess) return
-    const unsubscribe = onSnapshot(collection(db, 'supervisors'), (snapshot) => {
-      setSupervisors(
-        snapshot.docs.map((document) => {
-          const data = document.data() as Record<string, unknown>
-          return {
-            id: document.id,
-            name: typeof data.name === 'string' ? data.name : undefined,
-            email: typeof data.email === 'string' ? data.email : undefined,
-          }
-        }),
-      )
-    })
-    return () => unsubscribe()
-  }, [hasAccess])
-
-  useEffect(() => {
-    if (!hasAccess) return
-    const reportsQuery = query(collection(db, 'reports'), orderBy('createdAt', 'desc'))
-    const unsubscribe = onSnapshot(reportsQuery, (snapshot) => {
-      setReports(
-        snapshot.docs.map((document) => {
-          const data = document.data() as Record<string, unknown>
-          return {
-            id: document.id,
-            message: String(data.message ?? ''),
-            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
-            status: typeof data.status === 'string' ? data.status : 'pending',
-            createdAt: toDate(data.createdAt),
-          }
-        }),
-      )
-    })
-    return () => unsubscribe()
-  }, [hasAccess])
-
-  useEffect(() => {
-    if (!hasAccess) return
-    const requestQuery = query(collection(db, 'restaurantRequests'), orderBy('createdAt', 'desc'))
-    const unsubscribe = onSnapshot(requestQuery, (snapshot) => {
-      setRequests(
-        snapshot.docs.map((document) => {
-          const data = document.data() as Record<string, unknown>
-          return {
-            id: document.id,
-            name: String(data.name ?? 'طلب جديد'),
-            city: typeof data.city === 'string' ? data.city : undefined,
-            location: typeof data.location === 'string' ? data.location : undefined,
-            status: typeof data.status === 'string' ? data.status : 'pending',
-            supervisorEmail: typeof data.supervisorEmail === 'string' ? data.supervisorEmail : undefined,
-            createdAt: toDate(data.createdAt),
-          }
-        }),
-      )
-    })
-    return () => unsubscribe()
-  }, [hasAccess])
-
-  useEffect(() => {
-    if (!hasAccess) return
-    void getDocs(collection(db, 'users')).then((snapshot) => {
-      const counts: Record<string, number> = {}
-      snapshot.forEach((document) => {
-        const role = String((document.data() as Record<string, unknown>).role ?? 'unknown')
-        counts[role] = (counts[role] ?? 0) + 1
-      })
-      setUsersByRole(counts)
-    })
-  }, [hasAccess])
-
-  const refreshExplorer = useCallback(async () => {
-    if (!explorerCollection) return
-    setExplorerLoading(true)
-    try {
-      const snapshot = await getDocs(collection(db, explorerCollection))
-      setExplorerDocs(
-        snapshot.docs.slice(0, 10).map((document) => ({
-          id: document.id,
-          data: document.data() as Record<string, unknown>,
-        })),
-      )
+      setActionMessage(`تم إنشاء المستند بنجاح (المعرف: ${createdId}).`)
+      setEditorMode('edit')
+      setEditorId(createdId)
+      setSelectedDocId(createdId)
+      await loadDocuments(activeDefinition.id)
+      await fetchStats()
     } catch (error) {
-      console.error('فشل في تحميل بيانات المستكشف:', error)
-      setExplorerDocs([])
+      const message = error instanceof Error ? error.message : 'حدث خطأ غير متوقع أثناء إنشاء المستند.'
+      setActionError(message)
     } finally {
-      setExplorerLoading(false)
+      setWorking(false)
     }
-  }, [explorerCollection])
+  }
 
-  useEffect(() => {
-    if (hasAccess) {
-      void refreshExplorer()
+  const handleReplaceDocument = async () => {
+    if (editorMode !== 'edit' || !editorId) {
+      setActionError('اختر مستندًا أولًا قبل محاولة الحفظ.')
+      return
     }
-  }, [hasAccess, explorerCollection, refreshExplorer])
+  }
 
-  const handleCreateRestaurant = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!newRestaurantName.trim()) return
-    setSavingRestaurant(true)
+    const payload = parseEditorValue()
+    if (!payload) return
+
+    setWorking(true)
+    setActionMessage(null)
+    setActionError(null)
     try {
-      const payload: Record<string, unknown> = {
-        name: newRestaurantName.trim(),
-        city: newRestaurantCity.trim() || null,
-        status: 'active',
-        createdAt: serverTimestamp(),
-      }
-      if (newRestaurantSupervisor) {
-        payload.supervisorId = newRestaurantSupervisor
-        const supervisor = supervisors.find((s) => s.id === newRestaurantSupervisor)
-        payload.supervisorEmail = supervisor?.email ?? null
-      }
-      await addDoc(collection(db, 'restaurants'), payload)
-      setNewRestaurantName('')
-      setNewRestaurantCity('')
-      setNewRestaurantSupervisor('')
+      await setDoc(doc(db, activeDefinition.id, editorId), payload)
+      setActionMessage('تم استبدال المستند بالكامل بنجاح.')
+      await loadDocuments(activeDefinition.id)
     } catch (error) {
-      console.error('فشل في إنشاء المطعم:', error)
-      alert('تعذر إنشاء المطعم، يرجى المحاولة مرة أخرى.')
+      const message = error instanceof Error ? error.message : 'فشل حفظ المستند. تحقق من الصلاحيات.'
+      setActionError(message)
     } finally {
-      setSavingRestaurant(false)
+      setWorking(false)
     }
   }
 
-  const handleDeleteRestaurant = async (id: string) => {
-    if (!confirm('هل تريد حذف هذا المطعم مع جميع بياناته؟')) return
-    try {
-      await deleteDoc(doc(db, 'restaurants', id))
-    } catch (error) {
-      console.error('فشل في حذف المطعم:', error)
-      alert('تعذر حذف المطعم حالياً.')
+  const handleMergeDocument = async () => {
+    if (editorMode !== 'edit' || !editorId) {
+      setActionError('اختر مستندًا أولًا قبل تنفيذ الدمج.')
+      return
     }
   }
 
-  const handleAssignSupervisor = async (restaurantId: string, supervisorId: string) => {
-    try {
-      const supervisor = supervisors.find((s) => s.id === supervisorId)
-      await updateDoc(doc(db, 'restaurants', restaurantId), {
-        supervisorId,
-        supervisorEmail: supervisor?.email ?? null,
-        updatedAt: serverTimestamp(),
-      })
-      if (supervisor) {
-        await setDoc(
-          doc(db, 'supervisors', supervisorId),
-          {
-            email: supervisor.email ?? null,
-            name: supervisor.name ?? null,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true },
-        )
-      }
-    } catch (error) {
-      console.error('فشل في ربط المطعم بالمشرف:', error)
-      alert('تعذر تحديث المشرف للمطعم.')
-    }
-  }
+    const payload = parseEditorValue()
+    if (!payload) return
 
-  const handleResolveReport = async (id: string) => {
+    setWorking(true)
+    setActionMessage(null)
+    setActionError(null)
     try {
-      await updateDoc(doc(db, 'reports', id), {
-        status: 'resolved',
-        resolvedAt: serverTimestamp(),
-      })
+      await setDoc(doc(db, activeDefinition.id, editorId), payload, { merge: true })
+      setActionMessage('تم دمج الحقول المحددة مع المستند الحالي.')
+      await loadDocuments(activeDefinition.id)
     } catch (error) {
-      console.error('فشل في تحديث التقرير:', error)
-      alert('تعذر تحديث حالة التقرير.')
-    }
-  }
-
-  const handleRequestStatus = async (request: RestaurantRequest, action: 'approve' | 'archive') => {
-    try {
-      if (action === 'approve') {
-        await addDoc(collection(db, 'restaurants'), {
-          name: request.name,
-          city: request.city ?? null,
-          status: 'pending-setup',
-          createdAt: serverTimestamp(),
-        })
-      }
-      await updateDoc(doc(db, 'restaurantRequests', request.id), {
-        status: action === 'approve' ? 'completed' : 'archived',
-        updatedAt: serverTimestamp(),
-      })
-    } catch (error) {
-      console.error('فشل في تحديث طلب المطعم:', error)
-      alert('تعذر تحديث حالة الطلب.')
-    }
-  }
-
-  const saveCommissionRate = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setSavingRate(true)
-    try {
-      const formData = new FormData(event.currentTarget)
-      const value = Number(formData.get('commission'))
-      await updateCommissionRate(value)
-    } catch (error) {
-      console.error('فشل في تحديث نسبة التطبيق:', error)
-      alert('تعذر حفظ النسبة الجديدة.')
+      const message = error instanceof Error ? error.message : 'فشل دمج الحقول. تحقق من الصلاحيات.'
+      setActionError(message)
     } finally {
-      setSavingRate(false)
+      setWorking(false)
     }
   }
 
-  const stats = useMemo(() => ({
-    restaurants: restaurants.length,
-    supervisors: supervisors.length,
-    reports: reports.length,
-  }), [restaurants.length, supervisors.length, reports.length])
+  const handleDeleteDocument = async () => {
+    if (editorMode !== 'edit' || !editorId) {
+      setActionError('اختر مستندًا أولًا قبل محاولة الحذف.')
+      return
+    }
 
-  if (!hasAccess) {
-    return (
-      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center gap-4 rounded-3xl bg-white p-8 text-slate-900 shadow-xl">
-        <h1 className="text-center text-xl font-bold text-slate-900">الوصول إلى لوحة المطور</h1>
-        <p className="text-sm text-slate-600 text-center">أدخل الرمز السري المؤقت للوصول إلى أدوات التطوير.</p>
-        {accessError && <div className="rounded-xl bg-rose-100 px-4 py-2 text-center text-sm text-rose-600">{accessError}</div>}
-        <form onSubmit={verifyAccess} className="space-y-3 text-right">
-          <input
-            type="password"
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-            placeholder="الرمز السري"
-            value={accessCode}
-            onChange={(event) => setAccessCode(event.target.value)}
-          />
-          <button type="submit" className="w-full rounded-xl bg-slate-900 py-3 text-sm font-semibold text-white">
-            متابعة
-          </button>
-        </form>
-      </div>
-    )
+    const confirmDelete = window.confirm('هل أنت متأكد من حذف المستند؟ لا يمكن التراجع عن هذه العملية.')
+    if (!confirmDelete) return
+
+    setWorking(true)
+    setActionMessage(null)
+    setActionError(null)
+    try {
+      await deleteDoc(doc(db, activeDefinition.id, editorId))
+      setActionMessage('تم حذف المستند بنجاح.')
+      resetEditorToTemplate()
+      await loadDocuments(activeDefinition.id)
+      await fetchStats()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر حذف المستند. تحقق من الصلاحيات.'
+      setActionError(message)
+    } finally {
+      setWorking(false)
+    }
   }
 
   return (
-    <div className="space-y-8 text-slate-900">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold">لوحة المطور</h1>
-        <p className="text-sm text-slate-600">
-          إدارة المطاعم والمشرفين والمستخدمين، التحكم بنسبة التطبيق، ومعالجة التقارير الواردة من المشرفين.
-        </p>
+    <section className="space-y-10">
+      <header className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 py-10 text-white shadow-xl">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-3">
+            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.4em] text-slate-300">
+              <Database className="h-4 w-4" />
+              وحدة المطور
+            </span>
+            <h1 className="text-3xl font-extrabold md:text-4xl">لوحة التحكم الشاملة لبيانات Firebase</h1>
+            <p className="max-w-2xl text-sm text-slate-200">
+              تحكم كامل ببيانات Firestore من خلال واجهة واحدة: تصفح المستندات، إنشاء أو تعديل أي سجل، والقيام بعمليات الدمج أو الحذف
+              بسرعة دون الحاجة إلى الرجوع إلى وحدة Firebase الأصلية.
+            </p>
+          </div>
+          {user && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+              <p className="font-semibold text-white">المستخدم الحالي</p>
+              <p className="text-xs text-slate-200/80">{user.email ?? user.uid}</p>
+            </div>
+          )}
+        </div>
       </header>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl bg-white p-4 shadow">
-          <div className="text-xs text-slate-500">عدد المطاعم</div>
-          <div className="text-2xl font-semibold">{stats.restaurants}</div>
-        </div>
-        <div className="rounded-2xl bg-white p-4 shadow">
-          <div className="text-xs text-slate-500">عدد المشرفين</div>
-          <div className="text-2xl font-semibold">{stats.supervisors}</div>
-        </div>
-        <div className="rounded-2xl bg-white p-4 shadow">
-          <div className="text-xs text-slate-500">عدد التقارير المفتوحة</div>
-          <div className="text-2xl font-semibold">{reports.filter((report) => report.status !== 'resolved').length}</div>
-        </div>
-        <div className="rounded-2xl bg-white p-4 shadow">
-          <div className="text-xs text-slate-500">المستخدمون بحسب الدور</div>
-          <div className="text-xs text-slate-600">
-            {Object.entries(usersByRole).map(([role, count]) => (
-              <div key={role}>{role}: {count}</div>
-            ))}
+      <section className="rounded-3xl bg-white/90 p-6 shadow-xl backdrop-blur">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">نظرة سريعة على البيانات</h2>
+            <p className="text-sm text-slate-500">تعداد المستندات في أهم مجموعات Firestore.</p>
           </div>
+          <button
+            onClick={fetchStats}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800"
+            disabled={statsLoading}
+          >
+            {statsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+            تحديث الأرقام
+          </button>
+        </div>
+
+        {statsError && (
+          <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">{statsError}</p>
+        )}
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {MANAGED_COLLECTIONS.map((definition) => (
+            <article
+              key={definition.id}
+              className="rounded-2xl border border-slate-200 bg-slate-50/60 p-5 shadow-sm"
+            >
+              <h3 className="text-sm font-semibold text-slate-600">{definition.label}</h3>
+              <p className="mt-4 text-3xl font-extrabold text-slate-900">
+                {statsLoading ? '...' : stats[definition.id]?.toLocaleString('ar-SA') ?? '0'}
+              </p>
+              <p className="mt-2 text-xs text-slate-500">{definition.description}</p>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <form onSubmit={handleCreateRestaurant} className="space-y-3 rounded-2xl bg-white p-5 shadow">
-          <h2 className="text-lg font-semibold text-slate-900">➕ إضافة مطعم</h2>
-          <input
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-            placeholder="اسم المطعم"
-            value={newRestaurantName}
-            onChange={(event) => setNewRestaurantName(event.target.value)}
-            required
-            disabled={savingRestaurant}
-          />
-          <input
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-            placeholder="المدينة (اختياري)"
-            value={newRestaurantCity}
-            onChange={(event) => setNewRestaurantCity(event.target.value)}
-            disabled={savingRestaurant}
-          />
-          <select
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-            value={newRestaurantSupervisor}
-            onChange={(event) => setNewRestaurantSupervisor(event.target.value)}
-            disabled={savingRestaurant}
-          >
-            <option value="">اختيار مشرف (اختياري)</option>
-            {supervisors.map((supervisor) => (
-              <option key={supervisor.id} value={supervisor.id}>
-                {supervisor.name ?? supervisor.email ?? supervisor.id}
-              </option>
-            ))}
-          </select>
-          <button
-            type="submit"
-            disabled={savingRestaurant}
-            className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-yellow-500 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {savingRestaurant ? 'جارٍ الحفظ...' : 'حفظ المطعم'}
-          </button>
-        </form>
+      <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+        <aside className="space-y-4">
+          <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-xl backdrop-blur">
+            <div className="flex flex-col gap-3">
+              <label className="text-sm font-semibold text-slate-600">اختر المجموعة</label>
+              <select
+                value={activeCollectionId}
+                onChange={(event) => setActiveCollectionId(event.target.value)}
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                {MANAGED_COLLECTIONS.map((definition) => (
+                  <option key={definition.id} value={definition.id}>
+                    {definition.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs leading-relaxed text-slate-500">{activeDefinition.description}</p>
+            </div>
 
-        <form onSubmit={saveCommissionRate} className="space-y-3 rounded-2xl bg-white p-5 shadow">
-          <h2 className="text-lg font-semibold text-slate-900">⚙️ إعداد نسبة التطبيق</h2>
-          <p className="text-sm text-slate-600">النسبة الحالية {commissionRate * 100}%</p>
-          <input
-            name="commission"
-            type="number"
-            min={0}
-            max={1}
-            step={0.01}
-            defaultValue={commissionRate}
-            className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={savingRate}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {savingRate ? 'جارٍ التحديث...' : 'تحديث النسبة'}
-          </button>
-        </form>
-      </section>
+            <div className="mt-4 flex items-center gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="search"
+                  value={filterTerm}
+                  onChange={(event) => setFilterTerm(event.target.value)}
+                  placeholder="بحث بالمعرف أو المحتوى"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
+              </div>
+              <button
+                onClick={() => loadDocuments(activeDefinition.id)}
+                className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100"
+                title="تحديث القائمة"
+              >
+                <RefreshCcw className="h-4 w-4" />
+                تحديث
+              </button>
+            </div>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">🍽️ إدارة المطاعم</h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {restaurants.map((restaurant) => (
-            <div key={restaurant.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
+            {listError && (
+              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-600">{listError}</p>
+            )}
+
+            <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {docsLoading && (
+                <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-6 text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  جارِ تحميل المستندات...
+                </div>
+              )}
+
+              {!docsLoading && filteredDocuments.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  لا توجد مستندات مطابقة حالياً.
+                </div>
+              )}
+
+              {filteredDocuments.map((document) => {
+                const summary = summarizeDocument(activeDefinition, document)
+                const isActive = document.id === selectedDocId
+                return (
+                  <button
+                    key={document.id}
+                    onClick={() => handleSelectDocument(document)}
+                    className={`w-full rounded-2xl border px-4 py-3 text-right transition shadow-sm ${
+                      isActive
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-primary/40 hover:bg-primary/5'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm">{document.id}</span>
+                      {isActive && <span className="text-xs font-semibold">محدد</span>}
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-500 line-clamp-2">
+                      {summary}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </aside>
+
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-xl backdrop-blur">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <div className="text-lg font-semibold text-slate-900">{restaurant.name}</div>
-                <div className="text-xs text-slate-500">
-                  {restaurant.city ? `📍 ${restaurant.city}` : 'بدون تحديد مدينة'}
-                </div>
-                <div className="text-xs text-slate-500">
-                  المشرف الحالي: {restaurant.supervisorEmail ?? restaurant.supervisorId ?? 'غير مرتبط'}
-                </div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  {editorMode === 'edit' ? 'تعديل المستند المحدد' : 'إنشاء مستند جديد'}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  حرر JSON مباشرة لضبط الحقول. استخدم زر الدمج لتعديل جزء من المستند فقط أو الاستبدال لإعادة الكتابة بالكامل.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={resetEditorToTemplate}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-100"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  مستند جديد فارغ
+                </button>
+                <button
+                  onClick={handleApplyTemplate}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
+                  disabled={!activeDefinition.sample}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  تعبئة بالقالب
+                </button>
               </div>
               <select
                 className="rounded-xl border border-slate-200 px-3 py-2 text-xs"
@@ -505,98 +629,85 @@ export const Developer: React.FC = () => {
                 حذف المطعم
               </button>
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">📨 طلبات المشرفين</h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {requests.map((request) => (
-            <div key={request.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
-              <div>
-                <div className="text-lg font-semibold text-slate-900">{request.name}</div>
-                {request.city && <div className="text-xs text-slate-500">📍 {request.city}</div>}
-                {request.location && <div className="text-xs text-slate-500">📌 {request.location}</div>}
-                <div className="text-xs text-slate-500">الحالة: {request.status}</div>
-                {request.supervisorEmail && (
-                  <div className="text-xs text-slate-500">من: {request.supervisorEmail}</div>
-                )}
+            {actionMessage && (
+              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{actionMessage}</p>
+            )}
+            {actionError && (
+              <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">{actionError}</p>
+            )}
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+              <div className="space-y-3">
+                <label className="block text-xs font-semibold text-slate-500">
+                  {editorMode === 'edit' ? 'معرّف المستند (غير قابل للتعديل)' : 'معرّف المستند (اختياري)'}
+                </label>
+                <input
+                  value={editorId}
+                  onChange={(event) => setEditorId(event.target.value)}
+                  disabled={editorMode === 'edit'}
+                  placeholder="اتركه فارغًا لإنشاء معرف تلقائي"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:bg-slate-100"
+                />
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-500">
+                  <p className="font-semibold text-slate-600">ملاحظات مهمة:</p>
+                  <ul className="mt-2 space-y-1 list-disc pr-4">
+                    <li>استخدم زر «الدمج» للحفاظ على الحقول الأخرى كما هي.</li>
+                    <li>لإضافة طابع زمني من الخادم استخدم التحديث من الواجهة الأخرى أو احفظ حقلًا placeholder ثم حدثه لاحقًا.</li>
+                    <li>لا تترك JSON فارغًا عند الحفظ.</li>
+                  </ul>
+                </div>
               </div>
-              <div className="flex gap-2 text-xs">
-                <button
-                  onClick={() => handleRequestStatus(request, 'approve')}
-                  className="flex-1 rounded-xl bg-emerald-500 px-3 py-2 font-semibold text-white hover:bg-emerald-600"
-                >
-                  إنشاء مطعم
-                </button>
-                <button
-                  onClick={() => handleRequestStatus(request, 'archive')}
-                  className="flex-1 rounded-xl bg-slate-200 px-3 py-2 font-semibold text-slate-700 hover:bg-slate-300"
-                >
-                  أرشفة
-                </button>
-              </div>
+
+              <textarea
+                dir="ltr"
+                spellCheck={false}
+                value={editorValue}
+                onChange={(event) => setEditorValue(event.target.value)}
+                className="h-[420px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-mono text-slate-800 shadow-inner focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
             </div>
-          ))}
-        </div>
-      </section>
 
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">📝 تقارير المشرفين</h2>
-        <div className="grid gap-3 md:grid-cols-2">
-          {reports.map((report) => (
-            <div key={report.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow">
-              <div className="text-sm text-slate-800">{report.message}</div>
-              <div className="text-xs text-slate-500">
-                {report.supervisorEmail && <div>من: {report.supervisorEmail}</div>}
-                <div>الحالة: {report.status}</div>
-                <div>{report.createdAt ? report.createdAt.toLocaleString('ar-SA') : '—'}</div>
-              </div>
-              {report.status !== 'resolved' && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {editorMode === 'create' ? (
                 <button
-                  onClick={() => handleResolveReport(report.id)}
-                  className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-600"
+                  onClick={handleCreateDocument}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-white shadow hover:bg-primary/90 disabled:opacity-60"
+                  disabled={working}
                 >
-                  تمييز كمكتمل
+                  {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+                  إنشاء المستند
                 </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleReplaceDocument}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-60"
+                    disabled={working}
+                  >
+                    {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    حفظ (استبدال كامل)
+                  </button>
+                  <button
+                    onClick={handleMergeDocument}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-primary bg-primary/10 px-4 py-2 text-sm font-semibold text-primary shadow hover:bg-primary/20 disabled:opacity-60"
+                    disabled={working}
+                  >
+                    {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                    حفظ (دمج فقط)
+                  </button>
+                  <button
+                    onClick={handleDeleteDocument}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 shadow hover:bg-rose-100 disabled:opacity-60"
+                    disabled={working}
+                  >
+                    {working ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    حذف المستند
+                  </button>
+                </>
               )}
             </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-semibold text-slate-900">🗂️ مستكشف البيانات</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          {managedCollections.map((name) => (
-            <button
-              key={name}
-              onClick={() => setExplorerCollection(name)}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
-                explorerCollection === name ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {name}
-            </button>
-          ))}
-          <button
-            onClick={refreshExplorer}
-            className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-          >
-            تحديث
-          </button>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow text-xs text-slate-700">
-          {explorerLoading ? (
-            <div>جارِ التحميل...</div>
-          ) : explorerDocs.length === 0 ? (
-            <div>لا توجد مستندات في هذه المجموعة.</div>
-          ) : (
-            <pre className="whitespace-pre-wrap break-words text-[11px]">
-              {JSON.stringify(explorerDocs, null, 2)}
-            </pre>
-          )}
+          </div>
         </div>
       </section>
     </div>

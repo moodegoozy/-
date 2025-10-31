@@ -5,14 +5,12 @@ import { collection, getDocs, query, where } from 'firebase/firestore'
 import { useCart } from '@/hooks/useCart'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/auth'
-import { usePlatformSettings } from '@/context/PlatformSettingsContext'
 
 type Item = {
   id: string
   name: string
   desc?: string
   price: number
-  basePrice?: number
   imageUrl?: string
   available: boolean
   categoryId?: string
@@ -47,17 +45,20 @@ export const MenuPage: React.FC = () => {
     add,
     subtotal,
     items: cartItems,
+    applicationFeePerItem,
+    getUnitPriceWithFees,
     totalWithFees,
     getBasePrice,
     getMarkupPerUnit,
   } = useCart()
   const { role } = useAuth()
-  const { commissionRate } = usePlatformSettings()
 
   const selectedRestaurantId = useMemo(
     () => searchParams.get('restaurant') || undefined,
     [searchParams]
   )
+
+  const selectedRestaurantId = useMemo(() => searchParams.get('restaurant') || undefined, [searchParams])
 
   useEffect(() => {
     let active = true
@@ -106,20 +107,10 @@ export const MenuPage: React.FC = () => {
         const snap = await getDocs(qy)
         if (!active) return
         const itemsData: Item[] = snap.docs
-          .map((d) => {
-            const data = d.data() as any
-            const basePrice = typeof data.basePrice === 'number'
-              ? Number(data.basePrice)
-              : typeof data.price === 'number'
-                ? Number((data.price / (1 + commissionRate)).toFixed(2))
-                : undefined
-
-            return {
-              id: d.id,
-              ...data,
-              basePrice,
-            }
-          })
+          .map((d) => ({
+            id: d.id,
+            ...(d.data() as any),
+          }))
           .filter((item) => item.available ?? true)
         setItems(itemsData)
       } catch (error) {
@@ -136,7 +127,7 @@ export const MenuPage: React.FC = () => {
     return () => {
       active = false
     }
-  }, [selectedRestaurantId, commissionRate])
+  }, [selectedRestaurantId])
 
   const allRestaurants = useMemo(
     () =>
@@ -188,15 +179,10 @@ export const MenuPage: React.FC = () => {
       return
     }
 
-    const basePrice = typeof item.basePrice === 'number'
-      ? item.basePrice
-      : Number((item.price / (1 + commissionRate)).toFixed(2))
-
     add({
       id: item.id,
       name: item.name,
       price: item.price,
-      basePrice,
       ownerId: item.ownerId,
     })
   }
@@ -214,8 +200,8 @@ export const MenuPage: React.FC = () => {
       <header className="text-center space-y-3">
         <h1 className="text-3xl font-extrabold text-yellow-400">🍗 قائمة الأصناف</h1>
         <p className="text-gray-300">
-          الأسعار تشمل نسبة التطبيق {(commissionRate * 100).toFixed(0)}% والتي تُقسم بالتساوي بين التطبيق والمشرف المسؤول عن المطعم.
-          اختر المطعم لاستعراض قائمته الخاصة أو اطّلع على جميع الأصناف مرتبة بحسب المطعم.
+          اختر المطعم لاستعراض قائمته الخاصة أو اطّلع على جميع الأصناف مرتبة بحسب
+          المطعم.
         </p>
       </header>
 
@@ -374,17 +360,11 @@ export const MenuPage: React.FC = () => {
             </div>
 
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
-              {section.items.map((item) => {
-                const base = typeof item.basePrice === 'number'
-                  ? Number(item.basePrice.toFixed?.(2) ?? item.basePrice)
-                  : Number((item.price / (1 + commissionRate)).toFixed(2))
-                const markup = Number((item.price - base).toFixed(2))
-
-                return (
-                  <article
-                    key={item.id}
-                    className="bg-gray-800 text-white rounded-2xl shadow-lg hover:shadow-2xl transition overflow-hidden flex flex-col"
-                  >
+              {section.items.map((item) => (
+                <article
+                  key={item.id}
+                  className="bg-gray-800 text-white rounded-2xl shadow-lg hover:shadow-2xl transition overflow-hidden flex flex-col"
+                >
                   <div className="h-48 bg-gray-700 flex items-center justify-center overflow-hidden">
                     {item.imageUrl ? (
                       <img
@@ -415,10 +395,10 @@ export const MenuPage: React.FC = () => {
                     <div className="mt-auto flex items-end justify-between gap-4">
                       <div className="space-y-1 text-sm">
                         <span className="block font-bold text-xl text-yellow-400">
-                          {item.price.toFixed(2)} ر.س
+                          {getUnitPriceWithFees(item.price).toFixed(2)} ر.س
                         </span>
                         <span className="text-xs text-gray-300">
-                          السعر الأساسي {base.toFixed(2)} ر.س + نسبة التطبيق {markup.toFixed(2)} ر.س
+                          السعر الأصلي {item.price.toFixed(2)} ر.س + رسوم التشغيل {applicationFeePerItem.toFixed(2)} ر.س
                         </span>
                       </div>
 
@@ -437,9 +417,8 @@ export const MenuPage: React.FC = () => {
                       )}
                     </div>
                   </div>
-                  </article>
-                )
-              })}
+                </article>
+              ))}
             </div>
           </section>
         )

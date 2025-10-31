@@ -58,7 +58,7 @@ export const ManageMenu: React.FC = () => {
     if (!Number.isFinite(basePrice) || basePrice <= 0) {
       return alert('⚠️ أدخل سعر أساسي صالح (أكبر من صفر)')
     }
-    const priceWithFee = Number((basePrice * multiplier).toFixed(2))
+    const priceWithFee = Number((basePrice * 1.15).toFixed(2))
 
     let payload: any = {
       ...form,
@@ -96,7 +96,7 @@ export const ManageMenu: React.FC = () => {
   }
 
   const customerPricePreview = Number.isFinite(form.price)
-    ? Number((Number(form.price || 0) * multiplier).toFixed(2))
+    ? Number((Number(form.price || 0) * 1.15).toFixed(2))
     : 0
 
   if (loading) return <div>جارِ تحميل الأصناف...</div>
@@ -129,7 +129,7 @@ export const ManageMenu: React.FC = () => {
             onChange={e=>setForm({...form, price: Number(e.target.value)})}
           />
           <p className="text-xs text-gray-500">
-            يتم إضافة {(commissionRate * 100).toFixed(0)}% تلقائيًا. السعر المعروض للعميل سيكون تقريبًا {customerPricePreview.toFixed(2)} ر.س
+            يتم إضافة 15% تلقائيًا. السعر المعروض للعميل سيكون تقريبًا {customerPricePreview.toFixed(2)} ر.س
           </p>
         </div>
         <input 
@@ -152,14 +152,11 @@ export const ManageMenu: React.FC = () => {
       {/* 🛒 عرض الأصناف */}
       <div className="space-y-3">
         {items.map(it => {
-          const base = typeof it.basePrice === 'number'
-            ? Number(it.basePrice.toFixed?.(2) ?? it.basePrice)
+          const base = typeof (it as any).basePrice === 'number'
+            ? Number((it as any).basePrice)
             : typeof it.price === 'number'
-              ? Number((it.price / multiplier).toFixed(2))
+              ? Number((it.price / 1.15).toFixed(2))
               : undefined
-          const markup = typeof base === 'number' && typeof it.price === 'number'
-            ? Number((it.price - base).toFixed(2))
-            : undefined
 
           return (
             <div key={it.id} className="bg-white rounded-2xl shadow p-4 flex items-center gap-4">
@@ -173,11 +170,8 @@ export const ManageMenu: React.FC = () => {
               <div className="text-sm text-gray-600">{it.desc}</div>
               <div className="font-semibold mt-1">{it.price?.toFixed?.(2)} ر.س</div>
               {typeof base === 'number' && !Number.isNaN(base) && (
-                <div className="text-xs text-gray-500 space-y-1">
-                  <div>السعر الأساسي قبل النسبة: {base.toFixed(2)} ر.س</div>
-                  {typeof markup === 'number' && !Number.isNaN(markup) && (
-                    <div>الزيادة ({(commissionRate * 100).toFixed(0)}%): {markup.toFixed(2)} ر.س</div>
-                  )}
+                <div className="text-xs text-gray-500">
+                  (السعر قبل إضافة نسبة التطبيق {base.toFixed(2)} ر.س)
                 </div>
               )}
             </div>
