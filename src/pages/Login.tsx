@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { signInWithEmailAndPassword, signOut } from 'firebase/auth'
 import { auth, db } from '@/firebase'
+import { DEVELOPER_ACCESS_SESSION_KEY, developerAccessCode } from '@/config'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { Link, useNavigate } from 'react-router-dom'
 import { Megaphone } from 'lucide-react'
@@ -52,6 +53,7 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
 
   const [generalEmail, setGeneralEmail] = useState('')
   const [generalPassword, setGeneralPassword] = useState('')
+  const [generalDeveloperCode, setGeneralDeveloperCode] = useState('')
   const [generalLoading, setGeneralLoading] = useState(false)
   const [generalError, setGeneralError] = useState<string | null>(null)
 
@@ -115,6 +117,14 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
 
       const userData = snap.data() as UserData
 
+      const trimmedDeveloperCode = generalDeveloperCode.trim()
+
+      try {
+        window.sessionStorage.removeItem(DEVELOPER_ACCESS_SESSION_KEY)
+      } catch (storageError) {
+        console.warn('تعذّر تحديث جلسة المطور:', storageError)
+      }
+
       switch (userData.role) {
         case 'owner':
           navigate('/owner')
@@ -124,6 +134,18 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
           break
         case 'admin':
           navigate('/admin/panel')
+          break
+        case 'developer':
+          if (developerAccessCode && trimmedDeveloperCode !== developerAccessCode) {
+            await signOut(auth)
+            throw new Error('رمز دخول المطور غير صحيح. الرجاء المحاولة مرة أخرى.')
+          }
+          try {
+            window.sessionStorage.setItem(DEVELOPER_ACCESS_SESSION_KEY, 'granted')
+          } catch (storageError) {
+            console.warn('تعذّر حفظ جلسة المطور:', storageError)
+          }
+          navigate('/developer')
           break
         default:
           navigate('/')
@@ -446,6 +468,25 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
                 autoComplete="current-password"
               />
 
+              {developerAccessCode && (
+                <div className="space-y-2 rounded-2xl border border-accent/30 bg-[#2b1a16] p-3">
+                  <label className="flex flex-col gap-2 text-right text-sm text-secondary/80">
+                    <span className="font-semibold text-accent">رمز لوحة المطور</span>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      placeholder="أدخل الرمز السري للوصول إلى لوحة المطور"
+                      className="w-full rounded-xl border border-accent/30 bg-[#3c211c] p-3 text-secondary placeholder-[#f8deb0b3] focus:outline-none focus:ring-2 focus:ring-accent"
+                      value={generalDeveloperCode}
+                      onChange={(event) => setGeneralDeveloperCode(event.target.value)}
+                      disabled={generalLoading}
+                      autoComplete="one-time-code"
+                    />
+                    <span className="text-xs text-secondary/70">لن تحتاج إليه إلا إذا كان دور حسابك مطور.</span>
+                  </label>
+                </div>
+              )}
+
               <button
                 disabled={generalLoading}
                 className="w-full rounded-xl bg-accent p-3 font-bold text-primary shadow-lg transition hover:scale-105 hover:bg-[#d3a442] disabled:cursor-not-allowed disabled:opacity-70"
@@ -544,53 +585,6 @@ export const Login: React.FC<LoginProps> = ({ defaultMode = 'general' }) => {
         }`}
       >
         {renderForm()}
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary via-dark to-[#3a1a1a]">
-      <div className="bg-[rgba(43,26,22,0.85)] backdrop-blur-xl border border-accent/30 rounded-3xl shadow-2xl w-full max-w-md p-8 text-secondary">
-
-        {/* شعار / اسم الموقع */}
-        <h1 className="text-3xl font-extrabold text-center text-accent mb-2">
-          🍽️ سفرة البيت
-        </h1>
-        <p className="text-center text-secondary/80 mb-8">تسجيل الدخول</p>
-
-        {/* نموذج تسجيل الدخول */}
-        <form onSubmit={submit} className="space-y-4">
-          <input
-            type="email"
-            placeholder="الإيميل"
-            className="w-full rounded-xl p-3 bg-[#3c211c] text-secondary placeholder-[#f8deb0b3] border border-accent/30
-                       focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            type="password"
-            placeholder="كلمة المرور"
-            className="w-full rounded-xl p-3 bg-[#3c211c] text-secondary placeholder-[#f8deb0b3] border border-accent/30
-                       focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-
-          <button
-            disabled={loading}
-            className="w-full bg-accent hover:bg-[#d3a442] text-primary font-bold p-3 rounded-xl
-                       shadow-lg transition transform hover:scale-105 disabled:opacity-70"
-          >
-            {loading ? 'جارٍ الدخول...' : 'دخول'}
-          </button>
-        </form>
-
-        {/* رابط التسجيل */}
-        <p className="mt-6 text-center text-sm text-secondary/80">
-          ليس لديك حساب؟{' '}
-          <Link
-            className="text-accent hover:text-[#e0b861] font-semibold"
-            to="/register"
-          >
-            سجّل الآن
-          </Link>
-        </p>
       </div>
     </div>
   )

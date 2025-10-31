@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import { onAuthStateChanged, signOut, User } from 'firebase/auth'
 import { auth, db } from './firebase'
+import { DEVELOPER_ACCESS_SESSION_KEY } from './config'
 import { doc, getDoc } from 'firebase/firestore'
 
-type Role = 'owner' | 'courier' | 'customer' | 'admin'
+type Role = 'owner' | 'courier' | 'customer' | 'admin' | 'developer'
 
 type AuthContextType = {
   user: User | null,
@@ -39,7 +40,14 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     return () => unsub()
   }, [])
 
-  const logout = async () => { await signOut(auth) }
+  const logout = async () => {
+    try {
+      window.sessionStorage.removeItem(DEVELOPER_ACCESS_SESSION_KEY)
+    } catch (error) {
+      console.warn('تعذّر مسح جلسة المطور عند تسجيل الخروج:', error)
+    }
+    await signOut(auth)
+  }
 
   return (
     <AuthContext.Provider value={{ user, role, loading, logout }}>
