@@ -64,6 +64,16 @@ export const Footer: React.FC = () => {
               🗑️ حذف حسابي
             </button>
           )}
+
+          {/* زر تواصل معنا */}
+          <a
+            href="https://wa.me/966555047703"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 bg-gradient-to-r from-yellow-400 to-yellow-500 text-[#4a0000] font-bold px-5 py-2 rounded-full shadow-md hover:scale-105 hover:shadow-lg transition-transform duration-300 whitespace-nowrap w-[170px]"
+          >
+            💬 تواصل معنا
+          </a>
         </div>
       </div>
     </footer>
