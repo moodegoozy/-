@@ -367,7 +367,6 @@ export const Developer: React.FC = () => {
       setActionError('اختر مستندًا أولًا قبل محاولة الحفظ.')
       return
     }
-  }
 
     const payload = parseEditorValue()
     if (!payload) return
@@ -392,7 +391,6 @@ export const Developer: React.FC = () => {
       setActionError('اختر مستندًا أولًا قبل تنفيذ الدمج.')
       return
     }
-  }
 
     const payload = parseEditorValue()
     if (!payload) return
@@ -439,44 +437,45 @@ export const Developer: React.FC = () => {
   }
 
   return (
-    <section className="space-y-10">
-      <header className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 py-10 text-white shadow-xl">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-3">
-            <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.4em] text-slate-300">
-              <Database className="h-4 w-4" />
-              وحدة المطور
-            </span>
-            <h1 className="text-3xl font-extrabold md:text-4xl">لوحة التحكم الشاملة لبيانات Firebase</h1>
-            <p className="max-w-2xl text-sm text-slate-200">
-              تحكم كامل ببيانات Firestore من خلال واجهة واحدة: تصفح المستندات، إنشاء أو تعديل أي سجل، والقيام بعمليات الدمج أو الحذف
-              بسرعة دون الحاجة إلى الرجوع إلى وحدة Firebase الأصلية.
-            </p>
-          </div>
-          {user && (
-            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-              <p className="font-semibold text-white">المستخدم الحالي</p>
-              <p className="text-xs text-slate-200/80">{user.email ?? user.uid}</p>
+    <div className="space-y-10">
+      <section className="space-y-10">
+        <header className="rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-8 py-10 text-white shadow-xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-3">
+              <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.4em] text-slate-300">
+                <Database className="h-4 w-4" />
+                وحدة المطور
+              </span>
+              <h1 className="text-3xl font-extrabold md:text-4xl">لوحة التحكم الشاملة لبيانات Firebase</h1>
+              <p className="max-w-2xl text-sm text-slate-200">
+                تحكم كامل ببيانات Firestore من خلال واجهة واحدة: تصفح المستندات، إنشاء أو تعديل أي سجل، والقيام بعمليات الدمج أو الحذف
+                بسرعة دون الحاجة إلى الرجوع إلى وحدة Firebase الأصلية.
+              </p>
             </div>
-          )}
-        </div>
-      </header>
-
-      <section className="rounded-3xl bg-white/90 p-6 shadow-xl backdrop-blur">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">نظرة سريعة على البيانات</h2>
-            <p className="text-sm text-slate-500">تعداد المستندات في أهم مجموعات Firestore.</p>
+            {user && (
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
+                <p className="font-semibold text-white">المستخدم الحالي</p>
+                <p className="text-xs text-slate-200/80">{user.email ?? user.uid}</p>
+              </div>
+            )}
           </div>
-          <button
-            onClick={fetchStats}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800"
-            disabled={statsLoading}
-          >
-            {statsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
-            تحديث الأرقام
-          </button>
-        </div>
+        </header>
+
+        <section className="rounded-3xl bg-white/90 p-6 shadow-xl backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">نظرة سريعة على البيانات</h2>
+              <p className="text-sm text-slate-500">تعداد المستندات في أهم مجموعات Firestore.</p>
+            </div>
+            <button
+              onClick={fetchStats}
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800"
+              disabled={statsLoading}
+            >
+              {statsLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
+              تحديث الأرقام
+            </button>
+          </div>
 
         {statsError && (
           <p className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800">{statsError}</p>
@@ -496,10 +495,10 @@ export const Developer: React.FC = () => {
             </article>
           ))}
         </div>
-      </section>
+        </section>
 
-      <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-        <aside className="space-y-4">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+          <aside className="space-y-4">
           <div className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-xl backdrop-blur">
             <div className="flex flex-col gap-3">
               <label className="text-sm font-semibold text-slate-600">اختر المجموعة</label>
@@ -610,24 +609,6 @@ export const Developer: React.FC = () => {
                   تعبئة بالقالب
                 </button>
               </div>
-              <select
-                className="rounded-xl border border-slate-200 px-3 py-2 text-xs"
-                value={restaurant.supervisorId ?? ''}
-                onChange={(event) => handleAssignSupervisor(restaurant.id, event.target.value)}
-              >
-                <option value="">اختر مشرفاً</option>
-                {supervisors.map((supervisor) => (
-                  <option key={supervisor.id} value={supervisor.id}>
-                    {supervisor.name ?? supervisor.email ?? supervisor.id}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => handleDeleteRestaurant(restaurant.id)}
-                className="rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-600"
-              >
-                حذف المطعم
-              </button>
             </div>
 
             {actionMessage && (
@@ -710,7 +691,8 @@ export const Developer: React.FC = () => {
           </div>
         </div>
       </section>
-    </div>
+    </section>
+  </div>
   )
 }
 
